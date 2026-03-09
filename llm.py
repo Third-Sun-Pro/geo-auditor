@@ -60,11 +60,6 @@ def analyze_response(answer, client_name, client_website):
 
     answer_lower = answer.lower()
 
-    print(f"[DEBUG] Analyzing response for: {client_name}")
-    print(f"[DEBUG] Looking for: {name_variations}")
-    print(f"[DEBUG] Domain: {domain}, Domain name: {domain_name}")
-    print(f"[DEBUG] Response length: {len(answer)} chars")
-    print(f"[DEBUG] Response preview: {answer[:200]}...")
 
     name_found = False
 
@@ -73,7 +68,6 @@ def analyze_response(answer, client_name, client_website):
         score += 2
         mentions.append("Named in response")
         name_found = True
-        print(f"[DEBUG] Found exact name match! Score: {score}")
     # Partial name match — capitalization + proximity check
     # When AI platforms reference a business, they capitalize the name.
     # Generic topic mentions ("retirement planning") stay lowercase.
@@ -101,21 +95,17 @@ def analyze_response(answer, client_name, client_website):
             score += 1
             mentions.append("Partial name match")
             name_found = True
-            print(f"[DEBUG] Found capitalized partial match ({len(set(w for _,w in cap_positions))} words in proximity). Score: {score}")
         else:
-            print(f"[DEBUG] Partial match check: {len(set(w for _,w in cap_positions))} capitalized name words found, needed {min_required} in proximity — skipped")
 
     # Domain name mention
     if domain_name and len(domain_name) > 3 and domain_name in answer_lower:
         score += 1
         mentions.append("Domain name mentioned")
-        print(f"[DEBUG] Found domain name. Score: {score}")
 
     # Full URL citation
     if domain.lower() in answer_lower:
         score += 1
         mentions.append("Website URL cited")
-        print(f"[DEBUG] Found full URL. Score: {score}")
 
     # Prominent placement (first 500 chars)
     if name_found:
@@ -123,7 +113,6 @@ def analyze_response(answer, client_name, client_website):
         if any(name in first_para for name in name_variations):
             score += 1
             mentions.append("Featured prominently")
-            print(f"[DEBUG] Featured prominently. Score: {score}")
 
     score = min(score, 3)
 
@@ -136,7 +125,6 @@ def analyze_response(answer, client_name, client_website):
     else:
         finding = "Not mentioned in response"
 
-    print(f"[DEBUG] Final score for this platform: {score}, Finding: {finding}")
 
     return {
         "score": score,
