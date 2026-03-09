@@ -345,10 +345,10 @@ IMPORTANT RULES:
 4. AVOID these already-used advantages: {already_used}
 
 Think step by step:
-- If competitor focuses on socialization/daycare → your advantage might be outdoor hiking or cat care
-- If competitor focuses on dogs → your advantage might be cat care services
-- If competitor focuses on training → your advantage might be boarding or adventure activities
-- If competitor is a large chain → your advantage might be local/personalized service
+- What specific service does {client_name} offer that this competitor does NOT?
+- If competitor is a large chain or franchise → advantage might be personalized, local service
+- If competitor focuses on one niche → advantage might be a complementary service they lack
+- If competitor is generalist → advantage might be a specialized expertise
 
 Write ONE specific advantage (under 10 words). No quotes, no client name."""
 
@@ -366,6 +366,13 @@ Write ONE specific advantage (under 10 words). No quotes, no client name."""
             print(f"[COMPETITOR AUDIT] Advantage analysis failed for {comp_name}: {e}")
             return "Personalized attention and local expertise"
 
+    # Filter out brand queries — they test the CLIENT's name recognition,
+    # not whether competitors appear for the same searches.
+    non_brand_queries = [q for q in queries if q.get('type', '') != 'Brand']
+    if not non_brand_queries:
+        non_brand_queries = queries  # fallback if all are brand
+    print(f"[COMPETITOR AUDIT] Using {len(non_brand_queries)} non-brand queries (skipped {len(queries) - len(non_brand_queries)} brand queries)")
+
     def check_single_competitor(competitor):
         comp_name = competitor.get('name', '')
         comp_website = competitor.get('website', '')
@@ -376,7 +383,7 @@ Write ONE specific advantage (under 10 words). No quotes, no client name."""
 
         comp_totals = {p: 0 for p in PLATFORMS}
 
-        for q in queries:
+        for q in non_brand_queries:
             query_text = q.get('query', '')
             if not query_text:
                 continue
@@ -395,7 +402,7 @@ Write ONE specific advantage (under 10 words). No quotes, no client name."""
                         pass
 
         total_score = sum(comp_totals.values())
-        max_score = len(queries) * 12
+        max_score = len(non_brand_queries) * 12
         percentage = (total_score / max_score * 100) if max_score > 0 else 0
 
         strengths = analyze_competitor_strengths(comp_name)
@@ -408,7 +415,7 @@ Write ONE specific advantage (under 10 words). No quotes, no client name."""
             "visibility_max": max_score,
             "visibility_percentage": round(percentage, 1),
             "visibility_display": f"{round(percentage, 1)}%",
-            "queries_tested": len(queries),
+            "queries_tested": len(non_brand_queries),
             "strengths": strengths,
             "your_advantage": your_advantage,
             "platform_breakdown": comp_totals,
@@ -446,7 +453,7 @@ Write ONE specific advantage (under 10 words). No quotes, no client name."""
     return {
         "success": True,
         "competitors": sorted_results,
-        "api_calls_made": len(competitors) * len(queries) * 4,
+        "api_calls_made": len(competitors) * len(non_brand_queries) * 4,
         "comparison": {
             "client_visibility": client_visibility,
             "leader": leader,
@@ -463,7 +470,156 @@ Write ONE specific advantage (under 10 words). No quotes, no client name."""
 def generate_recommendations(client_name, results, brand_queries, local_queries,
                              info_queries, percentage, best_platform, worst_platform,
                              package_type="basic"):
-    """Generate tailored recommendations based on audit results and package type."""
+    """Generate AI-personalized recommendations based on actual audit results.
+
+    Falls back to template-based recommendations if the AI call fails.
+    """
+    if not openai_client:
+        print("[RECS] No OpenAI client — using template fallback")
+        return _template_recommendations(
+            client_name, results, brand_queries, local_queries,
+            info_queries, percentage, best_platform, worst_platform, package_type
+        )
+
+    try:
+        recs = _ai_recommendations(
+            client_name, results, brand_queries, local_queries,
+            info_queries, percentage, best_platform, worst_platform, package_type
+        )
+        if recs:
+            return recs
+    except Exception as e:
+        print(f"[RECS] AI recommendations failed: {e} — using template fallback")
+
+    return _template_recommendations(
+        client_name, results, brand_queries, local_queries,
+        info_queries, percentage, best_platform, worst_platform, package_type
+    )
+
+
+def _ai_recommendations(client_name, results, brand_queries, local_queries,
+                         info_queries, percentage, best_platform, worst_platform,
+                         package_type):
+    """Call OpenAI to generate personalized recommendations from audit data."""
+    import json
+
+    is_premium = package_type.lower() == "premium"
+    num_recs = "5-7" if is_premium else "3-4"
+
+    # Build a summary of failed queries by category
+    def _failed_summary(queries, threshold=4):
+        failed = [r for r in queries if r['score'] < threshold] if queries else []
+        if not failed:
+            return "All queries performed well."
+        lines = []
+        for r in failed[:4]:
+            missed = [PLATFORM_NAMES[p] for p in PLATFORMS
+                      if r['details'].get(p, {}).get('score', 0) == 0]
+            missed_str = ", ".join(missed) if missed else "partial on all"
+            lines.append(f'  - "{r["query"]}" (score {r["score"]}/12, missing on: {missed_str})')
+        return "\n".join(lines)
+
+    brand_summary = _failed_summary(brand_queries, threshold=8)
+    local_summary = _failed_summary(local_queries)
+    info_summary = _failed_summary(info_queries)
+
+    # Extract client services from query context
+    all_services = set()
+    for r in results:
+        q = r.get('query', '').lower()
+        # The queries themselves reveal the services being tested
+        all_services.add(r.get('query', ''))
+
+    prompt = f"""You are a GEO (Generative Engine Optimization) consultant writing recommendations
+for a client audit report. Generate {num_recs} personalized, actionable recommendations.
+
+CLIENT: {client_name}
+OVERALL VISIBILITY: {percentage:.0f}%
+BEST PLATFORM: {best_platform or 'N/A'}
+WORST PLATFORM: {worst_platform or 'N/A'}
+PACKAGE: {"Premium" if is_premium else "Standard"}
+
+BRAND QUERY RESULTS (scored poorly = not recognized by name):
+{brand_summary}
+
+LOCAL QUERY RESULTS (scored poorly = not appearing for local service searches):
+{local_summary}
+
+INFO QUERY RESULTS (scored poorly = not cited as an authority):
+{info_summary}
+
+RULES FOR YOUR RECOMMENDATIONS:
+1. REFERENCE ACTUAL FAILED QUERIES — In the "issue" field, mention the specific queries
+   that scored poorly. Don't be vague — say exactly what searches they're missing.
+
+2. INDUSTRY-SPECIFIC ACTIONS — Tailor every action to this specific business.
+   BAD: "Create content about your services"
+   GOOD: "Write a comprehensive guide: 'How to Choose a Retirement Planner in Westlake Village'"
+
+3. QUICK WINS FIRST — Order actions within each recommendation from easiest/fastest
+   to most involved. Schema markup and Google Business Profile come before "build a content hub."
+
+4. CONCRETE AND HANDOFF-READY — Each action should be specific enough that a web developer
+   or content writer could execute it without further clarification.
+   BAD: "Improve your website"
+   GOOD: "Add LocalBusiness JSON-LD schema to your homepage with your business name, address, phone number, and service area"
+
+5. PRIORITY LEVELS:
+   - high: Directly addresses the biggest visibility gaps
+   - medium: Important improvements with moderate impact
+   - low: Nice-to-haves and long-term strategy
+
+6. 3-5 ACTIONS per recommendation. Each action is one sentence.
+
+Respond ONLY with a JSON array. Each item:
+{{"title": "Short title", "priority": "high|medium|low", "issue": "Why this matters — reference the failed queries", "actions": ["Action 1", "Action 2", ...]}}"""
+
+    print(f"[RECS] Generating AI recommendations for {client_name}...")
+
+    response = openai_client.chat.completions.create(
+        model=CHATGPT_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=2000,
+        temperature=0.7,
+    )
+
+    result_text = response.choices[0].message.content.strip()
+    if result_text.startswith('```'):
+        result_text = result_text.split('```')[1]
+        if result_text.startswith('json'):
+            result_text = result_text[4:]
+    result_text = result_text.strip()
+
+    recommendations = json.loads(result_text)
+
+    # Validate structure
+    if not isinstance(recommendations, list) or len(recommendations) == 0:
+        print("[RECS] AI returned empty or invalid recommendations")
+        return None
+
+    # Ensure each rec has the expected fields
+    valid_recs = []
+    for rec in recommendations:
+        if isinstance(rec, dict) and 'title' in rec and 'actions' in rec:
+            valid_recs.append({
+                "title": rec.get("title", ""),
+                "priority": rec.get("priority", "medium"),
+                "issue": rec.get("issue", ""),
+                "actions": rec.get("actions", []),
+            })
+
+    if not valid_recs:
+        print("[RECS] AI response had no valid recommendations")
+        return None
+
+    print(f"[RECS] Generated {len(valid_recs)} AI-personalized recommendations")
+    return valid_recs
+
+
+def _template_recommendations(client_name, results, brand_queries, local_queries,
+                              info_queries, percentage, best_platform, worst_platform,
+                              package_type="basic"):
+    """Fallback: template-based recommendations when AI is unavailable."""
     recommendations = []
 
     failed_local = [r for r in local_queries if r['score'] < 4] if local_queries else []
@@ -472,7 +628,6 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
 
     is_premium = package_type.lower() == "premium"
 
-    # 1: Local visibility
     if failed_local:
         local_query_examples = ", ".join([f'"{q["query"]}"' for q in failed_local[:2]])
         actions = [
@@ -484,8 +639,7 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
         if is_premium:
             actions.extend([
                 "Create neighborhood-specific content pages targeting micro-local searches",
-                "Build relationships with local bloggers and news sites for backlinks",
-                "Add location-based testimonials mentioning specific areas served"
+                "Build relationships with local bloggers and news sites for backlinks"
             ])
         recommendations.append({
             "title": "Improve Local Search Visibility",
@@ -494,7 +648,6 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
             "actions": actions
         })
 
-    # 2: Content/thought leadership
     if failed_info:
         info_query_examples = ", ".join([f'"{q["query"]}"' for q in failed_info[:2]])
         actions = [
@@ -506,8 +659,7 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
         if is_premium:
             actions.extend([
                 "Develop in-depth guides and whitepapers on industry topics",
-                "Create comparison content (e.g., 'X vs Y: Which is right for you?')",
-                "Add expert quotes and data citations to boost authority signals"
+                "Create comparison content (e.g., 'X vs Y: Which is right for you?')"
             ])
         recommendations.append({
             "title": "Build Thought Leadership Content",
@@ -516,20 +668,13 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
             "actions": actions
         })
 
-    # 3: Brand visibility
     if failed_brand:
         actions = [
             "Ensure consistent NAP (Name, Address, Phone) across all web properties",
-            "Build backlinks from authoritative industry sites",
             "Claim and optimize Google Business Profile",
+            "Build backlinks from authoritative industry sites",
             "Get mentioned in industry publications and local news"
         ]
-        if is_premium:
-            actions.extend([
-                "Create a Wikipedia page or ensure accurate information on relevant wiki pages",
-                "Pursue PR opportunities for brand mentions in authoritative publications",
-                "Develop co-marketing partnerships for cross-promotional brand exposure"
-            ])
         recommendations.append({
             "title": "Strengthen Brand Recognition",
             "priority": "high",
@@ -537,7 +682,6 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
             "actions": actions
         })
 
-    # 4: Platform-specific
     if worst_platform and best_platform and worst_platform != best_platform:
         platform_tips = {
             "ChatGPT": "Ensure content is well-structured with clear headings and summaries",
@@ -545,82 +689,27 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
             "Gemini": "Optimize Google Business Profile and ensure site is indexed properly",
             "Perplexity": "Build more backlinks and citations from authoritative sources"
         }
-        actions = [
-            platform_tips.get(worst_platform, "Review platform-specific optimization strategies"),
-            "Ensure website loads quickly and is mobile-friendly",
-            "Add more specific, factual information about your services"
-        ]
-        if is_premium:
-            platform_premium_tips = {
-                "ChatGPT": "Structure content with clear Q&A format that GPT can easily parse",
-                "Claude": "Add primary source citations and research-backed claims",
-                "Gemini": "Ensure Google Search Console shows no indexing issues",
-                "Perplexity": "Focus on earning citations from .edu and .gov domains"
-            }
-            actions.append(platform_premium_tips.get(worst_platform, "Conduct platform-specific content audit"))
         recommendations.append({
             "title": f"Optimize for {worst_platform}",
             "priority": "medium",
             "issue": f"Lower visibility on {worst_platform} compared to {best_platform}",
-            "actions": actions
+            "actions": [
+                platform_tips.get(worst_platform, "Review platform-specific optimization strategies"),
+                "Ensure website loads quickly and is mobile-friendly",
+                "Add more specific, factual information about your services"
+            ]
         })
 
-    # 5: General improvement
     if percentage < 70:
-        actions = [
-            "Add clear, factual 'About' page with company history and credentials",
-            "Include team bios with qualifications and expertise",
-            "Publish case studies or testimonials with specific details",
-            "Ensure all pages have descriptive meta titles and descriptions"
-        ]
-        if is_premium:
-            actions.extend([
-                "Implement comprehensive schema markup across all page types",
-                "Create a resource hub or knowledge base for your industry"
-            ])
         recommendations.append({
             "title": "Enhance Overall AI Discoverability",
             "priority": "medium",
             "issue": "Room for improvement in overall AI visibility",
-            "actions": actions
-        })
-
-    # Premium-only recommendations
-    if is_premium:
-        recommendations.append({
-            "title": "Technical Optimization for AI Crawlers",
-            "priority": "medium",
-            "issue": "AI platforms may not be extracting all available information",
             "actions": [
-                "Implement comprehensive JSON-LD structured data (Organization, LocalBusiness, FAQPage)",
-                "Ensure clean HTML semantics with proper heading hierarchy",
-                "Add descriptive alt text to all images",
-                "Create an XML sitemap and submit to search engines",
-                "Optimize page load speed to under 3 seconds"
-            ]
-        })
-        recommendations.append({
-            "title": "Maintain Content Freshness",
-            "priority": "low",
-            "issue": "AI models favor recently updated, relevant content",
-            "actions": [
-                "Establish a regular blog posting schedule (minimum 2x/month)",
-                "Update service pages quarterly with new information",
-                "Add 'Last Updated' dates to key pages",
-                "Create seasonal or timely content relevant to your industry",
-                "Monitor and update outdated statistics or information"
-            ]
-        })
-        recommendations.append({
-            "title": "Strengthen Competitive Positioning",
-            "priority": "low",
-            "issue": "Opportunity to differentiate from competitors in AI responses",
-            "actions": [
-                "Create comparison pages highlighting your unique advantages",
-                "Develop case studies with measurable results",
-                "Highlight awards, certifications, and unique qualifications",
-                "Build a reviews strategy to increase positive sentiment signals",
-                "Create 'Why Choose Us' content addressing common decision factors"
+                "Add clear, factual 'About' page with company history and credentials",
+                "Include team bios with qualifications and expertise",
+                "Publish case studies or testimonials with specific details",
+                "Ensure all pages have descriptive meta titles and descriptions"
             ]
         })
 

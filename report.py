@@ -153,8 +153,8 @@ def generate_report_html(data):
     competitors = data.get('competitors', [])
     competitor_rows = ""
     for comp in competitors:
-        visibility = comp.get('visibility', '')
-        if visibility and '%' not in str(visibility):
+        visibility = comp.get('visibility_display', comp.get('visibility', ''))
+        if not visibility or (visibility and '%' not in str(visibility)):
             visibility = 'Not tested'
         competitor_rows += f"""
             <tr>
