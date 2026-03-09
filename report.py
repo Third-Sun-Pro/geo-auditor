@@ -25,6 +25,17 @@ def get_score_icon(score):
         return "&#10007;"
 
 
+def _platform_score_cell(score):
+    """Return styled HTML for a single platform score (0-3) in the query table."""
+    if score >= 3:
+        return f'<td style="text-align:center; color:#1E8449; font-weight:600;">{score}</td>'
+    elif score >= 2:
+        return f'<td style="text-align:center; color:#1E8449;">{score}</td>'
+    elif score >= 1:
+        return f'<td style="text-align:center; color:#9A7D0A;">{score}</td>'
+    return '<td style="text-align:center; color:#ccc;">0</td>'
+
+
 def _visibility_label(percentage):
     """Return a human-readable visibility label for the score summary."""
     if percentage >= 70:
@@ -93,19 +104,62 @@ def generate_report_html(data):
     max_score = len(queries) * 12
     percentage = (total_score / max_score) * 100 if max_score > 0 else 0
 
+    # Check if per-platform details exist (new audits have them, old ones don't)
+    has_details = any(q.get('details') for q in queries)
+
     # Generate query rows
     query_rows = ""
     for i, q in enumerate(queries, 1):
         score = q.get('score', 0)
         score_class = get_score_class(score)
         icon = get_score_icon(score)
-        query_rows += f"""
+        details = q.get('details', {})
+        if has_details:
+            chatgpt_cell = _platform_score_cell(details.get('chatgpt', {}).get('score', 0))
+            claude_cell = _platform_score_cell(details.get('claude', {}).get('score', 0))
+            gemini_cell = _platform_score_cell(details.get('gemini', {}).get('score', 0))
+            perplexity_cell = _platform_score_cell(details.get('perplexity', {}).get('score', 0))
+            query_rows += f"""
+            <tr>
+                <td>{i}</td>
+                <td>{q.get('query', '')}</td>
+                <td>{q.get('type', '')}</td>
+                {chatgpt_cell}{claude_cell}{gemini_cell}{perplexity_cell}
+                <td class="{score_class}">{score}/12</td>
+                <td>{icon} {q.get('finding', '')}</td>
+            </tr>"""
+        else:
+            query_rows += f"""
             <tr>
                 <td>{i}</td>
                 <td>{q.get('query', '')}</td>
                 <td>{q.get('type', '')}</td>
                 <td class="{score_class}">{score}/12</td>
                 <td>{icon} {q.get('finding', '')}</td>
+            </tr>"""
+
+    # Build query table header (conditional on per-platform details)
+    if has_details:
+        query_table_header = """
+            <tr>
+                <th style="width: 4%">#</th>
+                <th style="width: 24%">QUERY</th>
+                <th style="width: 8%">TYPE</th>
+                <th style="width: 6%; text-align: center;" title="ChatGPT">GPT</th>
+                <th style="width: 6%; text-align: center;" title="Claude">CL</th>
+                <th style="width: 6%; text-align: center;" title="Gemini">GEM</th>
+                <th style="width: 6%; text-align: center;" title="Perplexity">PPX</th>
+                <th style="width: 8%">TOTAL</th>
+                <th style="width: 32%">KEY FINDINGS</th>
+            </tr>"""
+    else:
+        query_table_header = """
+            <tr>
+                <th style="width: 5%">#</th>
+                <th style="width: 30%">QUERY</th>
+                <th style="width: 10%">TYPE</th>
+                <th style="width: 10%">SCORE</th>
+                <th style="width: 45%">KEY FINDINGS</th>
             </tr>"""
 
     # Generate platform cards
@@ -272,12 +326,13 @@ def generate_report_html(data):
         }}
 
         :root {{
-            --orange-primary: #{color};
-            --orange-dark: #D56A1F;
-            --yellow-accent: #F5B041;
+            --brand-orange: #{color};
+            --dark-primary: #2C3E50;
+            --dark-secondary: #34495E;
+            --warm-gray: #6B7280;
             --red-accent: #A93226;
             --maroon-accent: #7B241C;
-            --cream-bg: #FDF6F0;
+            --cream-bg: #F9FAFB;
             --light-gray: #f8f9fa;
         }}
 
@@ -298,7 +353,7 @@ def generate_report_html(data):
         .logo-text {{
             font-size: 36pt;
             font-weight: 700;
-            color: var(--orange-primary);
+            color: var(--brand-orange);
             letter-spacing: -1px;
         }}
 
@@ -306,10 +361,11 @@ def generate_report_html(data):
             border-bottom: none;
             padding-bottom: 20px;
             margin-bottom: 30px;
+            text-align: center;
         }}
 
         h1 {{
-            color: #2C2C2C;
+            color: var(--dark-primary);
             font-size: 28pt;
             font-weight: 800;
             margin: 0 0 5px 0;
@@ -317,13 +373,13 @@ def generate_report_html(data):
 
         .subtitle {{
             font-size: 14pt;
-            color: var(--orange-primary);
+            color: var(--warm-gray);
             font-style: italic;
             margin: 0;
         }}
 
         h2 {{
-            color: var(--orange-primary);
+            color: var(--dark-primary);
             font-size: 18pt;
             font-weight: 700;
             margin-top: 35px;
@@ -341,7 +397,7 @@ def generate_report_html(data):
             left: 0;
             width: 100%;
             height: 3px;
-            background: var(--orange-primary);
+            background: var(--brand-orange);
         }}
 
         .section-header {{
@@ -361,7 +417,7 @@ def generate_report_html(data):
             padding: 25px 30px;
             border-radius: 12px;
             margin-bottom: 30px;
-            border-left: 5px solid var(--yellow-accent);
+            border-left: 5px solid var(--dark-secondary);
             box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }}
 
@@ -391,7 +447,7 @@ def generate_report_html(data):
 
         /* Score Summary Box */
         .score-summary {{
-            background: var(--orange-primary);
+            background: var(--dark-primary);
             color: white;
             padding: 35px 40px;
             border-radius: 16px;
@@ -400,7 +456,7 @@ def generate_report_html(data):
         }}
 
         .score-summary h2 {{
-            color: white;
+            color: rgba(255,255,255,0.8);
             border: none;
             margin: 0 0 10px 0;
             font-size: 14pt;
@@ -420,12 +476,13 @@ def generate_report_html(data):
             margin: 10px 0;
             letter-spacing: -2px;
             font-style: italic;
+            color: var(--brand-orange);
         }}
 
         .score-label {{
             font-size: 20pt;
             font-weight: 600;
-            color: var(--yellow-accent);
+            color: rgba(255,255,255,0.9);
         }}
 
         .score-note {{
@@ -446,7 +503,7 @@ def generate_report_html(data):
         }}
 
         th {{
-            background: var(--orange-primary);
+            background: var(--dark-primary);
             color: white;
             padding: 14px 12px;
             text-align: left;
@@ -484,17 +541,17 @@ def generate_report_html(data):
 
         .platform-card {{
             background: white;
-            border: 1px solid #eee;
+            border: 1px solid #e5e7eb;
             border-radius: 12px;
             padding: 25px;
-            border-left: 5px solid var(--yellow-accent);
+            border-top: 4px solid var(--dark-primary);
             box-shadow: 0 2px 8px rgba(0,0,0,0.04);
             text-align: center;
         }}
 
         .platform-card h3 {{
             margin: 0 0 15px 0;
-            color: #333;
+            color: var(--dark-primary);
             font-size: 13pt;
             font-weight: 600;
         }}
@@ -502,14 +559,14 @@ def generate_report_html(data):
         .platform-score {{
             font-size: 36pt;
             font-weight: 800;
-            color: var(--orange-primary);
+            color: var(--dark-primary);
             font-style: italic;
             margin: 10px 0;
         }}
 
         .platform-visibility {{
             font-size: 11pt;
-            color: var(--orange-primary);
+            color: var(--dark-secondary);
             font-weight: 600;
             margin-bottom: 5px;
         }}
@@ -522,7 +579,7 @@ def generate_report_html(data):
         /* Recommendation Cards */
         .recommendation {{
             background: var(--cream-bg);
-            border-left: 5px solid var(--yellow-accent);
+            border-left: 5px solid #d1d5db;
             border-radius: 0 12px 12px 0;
             padding: 20px 25px;
             margin: 20px 0;
@@ -530,7 +587,7 @@ def generate_report_html(data):
 
         .recommendation h4 {{
             margin: 0 0 15px 0;
-            color: var(--orange-primary);
+            color: var(--dark-primary);
             font-size: 13pt;
             font-weight: 700;
         }}
@@ -555,12 +612,12 @@ def generate_report_html(data):
         }}
 
         .priority-high {{
-            border-left-color: var(--orange-primary);
+            border-left-color: var(--brand-orange);
             background: #FEF5F0;
         }}
         .priority-medium {{
-            border-left-color: var(--yellow-accent);
-            background: #FFFBF0;
+            border-left-color: var(--dark-secondary);
+            background: #F3F4F6;
         }}
         .priority-low {{
             border-left-color: #28a745;
@@ -573,11 +630,11 @@ def generate_report_html(data):
             bottom: 0;
             left: 0;
             right: 0;
-            height: 25px;
+            height: 6px;
             background: linear-gradient(90deg,
-                var(--yellow-accent) 0%,
-                var(--orange-primary) 50%,
-                var(--maroon-accent) 100%
+                var(--dark-primary) 0%,
+                var(--brand-orange) 50%,
+                var(--dark-primary) 100%
             );
             z-index: 1000;
         }}
@@ -602,6 +659,20 @@ def generate_report_html(data):
             page-break-after: always;
         }}
 
+        /* Cover page prepared-by line */
+        .prepared-by {{
+            text-align: center;
+            font-size: 9pt;
+            color: #999;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }}
+
+        .prepared-by strong {{
+            color: #666;
+        }}
+
         /* ===== Print / PDF page-break rules ===== */
         @media print {{
             body {{
@@ -619,7 +690,8 @@ def generate_report_html(data):
             .recommendation,
             .platform-card,
             .executive-summary,
-            .key-findings {{
+            .key-findings,
+            .footer {{
                 page-break-inside: avoid;
             }}
             .section-header,
@@ -659,11 +731,11 @@ def generate_report_html(data):
             padding: 25px 30px;
             border-radius: 12px;
             margin-bottom: 30px;
-            border-left: 5px solid var(--orange-primary);
+            border-left: 5px solid var(--dark-secondary);
         }}
 
         .geo-explainer h3 {{
-            color: var(--orange-primary);
+            color: var(--dark-primary);
             margin: 0 0 10px 0;
             font-size: 13pt;
         }}
@@ -773,6 +845,7 @@ def generate_report_html(data):
     </style>
 </head>
 <body>
+    <!-- ===== PAGE 1: COVER ===== -->
     <div class="logo-area">
         {logo_html}
     </div>
@@ -780,21 +853,6 @@ def generate_report_html(data):
     <div class="header">
         <h1>GENERATIVE ENGINE OPTIMIZATION AUDIT</h1>
         <p class="subtitle">AI Visibility Analysis Report</p>
-    </div>
-
-    <div class="geo-explainer">
-        <h3>What is Generative Engine Optimization?</h3>
-        <p>
-            When people search using AI tools like ChatGPT, Claude, Gemini, and Perplexity, these
-            platforms generate answers by pulling from websites across the internet. <strong>Generative
-            Engine Optimization (GEO)</strong> measures whether your business is being mentioned,
-            cited, or recommended in those AI-generated responses.
-        </p>
-        <p>
-            This audit tested {len(queries)} real search queries — the kinds of questions your potential
-            customers are asking — across 4 major AI platforms to see how visible
-            {client.get('name', 'your business')} is in this new search landscape.
-        </p>
     </div>
 
     <div class="client-info">
@@ -837,6 +895,28 @@ def generate_report_html(data):
         </div>
     </div>
 
+    <div class="prepared-by">
+        Prepared by <strong>Third Sun Productions</strong> &middot; thirdsunproductions.com
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- ===== PAGE 2: CONTEXT + ANALYSIS ===== -->
+    <div class="geo-explainer">
+        <h3>What is Generative Engine Optimization?</h3>
+        <p>
+            When people search using AI tools like ChatGPT, Claude, Gemini, and Perplexity, these
+            platforms generate answers by pulling from websites across the internet. <strong>Generative
+            Engine Optimization (GEO)</strong> measures whether your business is being mentioned,
+            cited, or recommended in those AI-generated responses.
+        </p>
+        <p>
+            This audit tested {len(queries)} real search queries — the kinds of questions your potential
+            customers are asking — across 4 major AI platforms to see how visible
+            {client.get('name', 'your business')} is in this new search landscape.
+        </p>
+    </div>
+
     <div class="section-header">
         <h2>Executive Summary</h2>
     </div>
@@ -857,6 +937,7 @@ def generate_report_html(data):
 
     <div class="page-break"></div>
 
+    <!-- ===== PAGE 3+: DETAILED DATA ===== -->
     <div class="section-header">
         <h2>Detailed Query Results</h2>
     </div>
@@ -891,13 +972,7 @@ def generate_report_html(data):
 
     <table>
         <thead>
-            <tr>
-                <th style="width: 5%">#</th>
-                <th style="width: 30%">QUERY</th>
-                <th style="width: 10%">TYPE</th>
-                <th style="width: 10%">SCORE</th>
-                <th style="width: 45%">KEY FINDINGS</th>
-            </tr>
+            {query_table_header}
         </thead>
         <tbody>
             {query_rows}
@@ -913,15 +988,17 @@ def generate_report_html(data):
 
     <div class="page-break"></div>
 
+    <!-- ===== RECOMMENDATIONS ===== -->
     <div class="section-header">
         <h2>Top Recommendations</h2>
     </div>
     <p style="font-size: 10pt; color: #888; margin-bottom: 20px;">
-        Prioritized by impact potential
+        {len(recommendations)} prioritized actions to improve your AI visibility
     </p>
 
     {recommendation_html}
 
+    <!-- ===== COMPETITIVE LANDSCAPE ===== -->
     <div class="section-header">
         <h2>Competitive Landscape</h2>
     </div>
@@ -940,18 +1017,22 @@ def generate_report_html(data):
         </tbody>
     </table>
 
+    <!-- ===== NEXT STEPS ===== -->
     <div class="section-header">
         <h2>Next Steps</h2>
     </div>
-    <ul class="key-findings">
-        <li><strong>Review Recommendations:</strong> Prioritize based on your resources and goals</li>
-        <li><strong>Implement High-Priority Items:</strong> Start with the top 2-3 recommendations</li>
-        <li><strong>30-Day Follow-Up:</strong> Re-run audit to measure improvement</li>
-    </ul>
+    <div class="geo-explainer" style="border-left-color: var(--brand-orange);">
+        <p style="font-size: 11pt; margin: 0 0 12px 0;"><strong>Your path forward:</strong></p>
+        <ul class="key-findings" style="margin: 0;">
+            <li><strong>Review the {len(recommendations)} recommendations</strong> in this report, starting with the high-priority items</li>
+            <li><strong>Implement changes</strong> — focus on structured data, content optimization, and authority signals first</li>
+            <li><strong>Schedule a re-audit in 30–60 days</strong> to measure improvement and track progress over time</li>
+        </ul>
+    </div>
 
     <div class="footer">
-        <p><strong>GEO Audit Report</strong> | Generated {client.get('audit_date', '')} | Third Sun Productions</p>
-        <p>Next Steps: Review recommendations and schedule implementation</p>
+        <p><strong>GEO Audit Report</strong> &middot; {client.get('name', '')} &middot; {client.get('audit_date', '')}</p>
+        <p>Prepared by Third Sun Productions &middot; thirdsunproductions.com</p>
     </div>
 
     <!-- Gradient Footer Bar -->

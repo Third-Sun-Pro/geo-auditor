@@ -1114,7 +1114,8 @@
                         query: r.query,
                         type: r.type,
                         score: r.score,
-                        finding: r.finding
+                        finding: r.finding,
+                        details: r.details || {}
                     }));
                     renderQueries();
                 }
