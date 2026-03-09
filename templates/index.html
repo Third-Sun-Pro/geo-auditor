@@ -1,0 +1,1971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEO Audit Report Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600;1,700;1,800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --orange-primary: #E97624;
+            --orange-dark: #D56A1F;
+            --yellow-accent: #F5B041;
+            --red-accent: #A93226;
+            --maroon-accent: #7B241C;
+            --cream-bg: #FDF6F0;
+            --light-gray: #f8f9fa;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Visby CF', 'Poppins', 'Avenir', 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            height: 100vh;
+        }
+
+        /* Form Panel */
+        .form-panel {
+            padding: 20px;
+            overflow-y: auto;
+            background: white;
+            border-right: 1px solid #ddd;
+        }
+
+        .form-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid var(--orange-primary);
+        }
+
+        .form-header h1 {
+            font-size: 24px;
+            color: var(--orange-primary);
+            font-weight: 700;
+        }
+
+        .btn-download {
+            background: var(--orange-primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .btn-download:hover {
+            background: var(--orange-dark);
+            transform: translateY(-1px);
+        }
+
+        .btn-download:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-run-audit {
+            background: linear-gradient(135deg, var(--orange-primary) 0%, var(--orange-dark) 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            margin-right: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-run-audit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(233, 118, 36, 0.3);
+        }
+
+        .btn-run-audit:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .api-status {
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            margin-left: 10px;
+            font-weight: 500;
+        }
+
+        .api-status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .api-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 24px;
+            background: #e9ecef;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 10px 0;
+            display: none;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--yellow-accent), var(--orange-primary), var(--maroon-accent));
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 10px;
+            display: none;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 0;
+        }
+
+        .tab {
+            padding: 12px 20px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s ease;
+        }
+
+        .tab:hover {
+            color: var(--orange-primary);
+            background: var(--cream-bg);
+        }
+
+        .tab.active {
+            background: var(--cream-bg);
+            color: var(--orange-primary);
+            border-bottom-color: var(--orange-primary);
+            font-weight: 600;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            font-size: 13px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--orange-primary);
+            box-shadow: 0 0 0 3px rgba(233, 118, 36, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        /* Dynamic Lists */
+        .list-item {
+            background: white;
+            padding: 18px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            border: 1px solid #eee;
+            border-left: 4px solid var(--yellow-accent);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+
+        .list-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .list-item-header h4 {
+            font-size: 14px;
+            color: var(--orange-primary);
+            font-weight: 600;
+        }
+
+        .btn-remove {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-remove:hover {
+            background: #c82333;
+        }
+
+        .btn-add {
+            background: var(--orange-primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            margin-top: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-add:hover {
+            background: var(--orange-dark);
+            transform: translateY(-1px);
+        }
+
+        /* Score input */
+        .score-input {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .score-input input {
+            width: 80px;
+            text-align: center;
+            font-weight: 600;
+            color: var(--orange-primary);
+        }
+
+        .score-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+
+        .score-btn.minus {
+            background: var(--maroon-accent);
+            color: white;
+        }
+
+        .score-btn.minus:hover {
+            background: #5a1a14;
+        }
+
+        .score-btn.plus {
+            background: #28a745;
+            color: white;
+        }
+
+        .score-btn.plus:hover {
+            background: #218838;
+        }
+
+        /* Preview Panel */
+        .preview-panel {
+            background: #e9e9e9;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .preview-header {
+            padding: 15px 20px;
+            background: linear-gradient(90deg, var(--yellow-accent), var(--orange-primary), var(--maroon-accent));
+            color: white;
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .preview-frame {
+            flex: 1;
+            border: none;
+            background: white;
+        }
+
+        /* Platform grid */
+        .platform-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .platform-item {
+            background: white;
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid #eee;
+            border-left: 4px solid var(--yellow-accent);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+
+        .platform-item label {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        /* Actions list */
+        .actions-list {
+            margin-top: 10px;
+        }
+
+        .action-item {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .action-item input {
+            flex: 1;
+        }
+
+        .btn-remove-small {
+            background: var(--maroon-accent);
+            color: white;
+            border: none;
+            width: 32px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-remove-small:hover {
+            background: #5a1a14;
+        }
+
+        .btn-add-small {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-add-small:hover {
+            background: #5a6268;
+        }
+
+        /* Findings list */
+        .findings-list {
+            margin-top: 10px;
+        }
+
+        .finding-item {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .finding-item input {
+            flex: 1;
+        }
+
+        /* Section headers */
+        .section-header {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--orange-primary);
+            margin: 24px 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #eee;
+            position: relative;
+        }
+
+        .section-header::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 60px;
+            height: 2px;
+            background: var(--orange-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Form Panel -->
+        <div class="form-panel">
+            <div class="form-header">
+                <h1>GEO Audit Generator</h1>
+                <div>
+                    <span id="api-status" class="api-status disconnected">Checking API...</span>
+                </div>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <button class="btn-run-audit" onclick="runAudit()">Run Audit</button>
+                <button class="btn-download" onclick="saveAudit(false)" style="background: #6c757d;">Save</button>
+                <button id="btn-download-pdf" class="btn-download" onclick="downloadPDF()">Download PDF</button>
+                <span id="save-indicator" style="margin-left: 8px; font-size: 13px; color: #22c55e; font-weight: 500; opacity: 0; transition: opacity 0.5s;"></span>
+            </div>
+            <div class="progress-text" id="progress-text">Running query 1 of 10...</div>
+            <div class="progress-bar" id="progress-bar">
+                <div class="progress-bar-fill" id="progress-fill"></div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('client')">Client Info</button>
+                <button class="tab" onclick="showTab('queries')">Queries</button>
+                <button class="tab" onclick="showTab('platforms')">Platforms</button>
+                <button class="tab" onclick="showTab('recommendations')">Recommendations</button>
+                <button class="tab" onclick="showTab('competitors')">Competitors</button>
+                <button class="tab" onclick="showTab('history')">History</button>
+            </div>
+
+            <!-- Client Info Tab -->
+            <div id="tab-client" class="tab-content active">
+                <div class="section-header" style="margin-top: 0;">Quick Start - Analyze Website</div>
+                <div class="form-group">
+                    <label>Enter a URL to auto-fill everything</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="analyze-url" placeholder="https://example.com" style="flex: 1;">
+                        <button class="btn-run-audit" onclick="analyzeWebsite()" id="btn-analyze">Analyze Website</button>
+                    </div>
+                    <div id="analyze-status" style="font-size: 12px; color: #666; margin-top: 5px;"></div>
+                </div>
+
+                <div class="section-header">Client Details</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Client Name</label>
+                        <input type="text" id="client-name" value="" placeholder="Auto-filled from website" oninput="updatePreview()">
+                    </div>
+                    <div class="form-group">
+                        <label>Website</label>
+                        <input type="text" id="client-website" value="" placeholder="https://example.com" oninput="updatePreview()">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Industry</label>
+                        <input type="text" id="client-industry" value="Industry Description" oninput="updatePreview()">
+                    </div>
+                    <div class="form-group">
+                        <label>Location</label>
+                        <input type="text" id="client-location" value="City, State" oninput="updatePreview()">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Audit Date</label>
+                        <input type="text" id="client-audit-date" value="" oninput="updatePreview()">
+                    </div>
+                    <div class="form-group">
+                        <label>Package Type</label>
+                        <select id="client-package" onchange="updatePreview()">
+                            <option value="Basic ($500)">Basic ($500)</option>
+                            <option value="Premium ($750)">Premium ($750)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Competitors Analyzed</label>
+                    <input type="text" id="client-competitors" value="Competitor 1, Competitor 2, Competitor 3" oninput="updatePreview()">
+                </div>
+
+                <div class="section-header" style="color: #E77206;">Client Intake</div>
+
+                <div class="form-group">
+                    <label>Paste the client's questionnaire answers</label>
+                    <textarea id="intake-paste" rows="6" placeholder="Paste all of the client's answers here — Q&A format, bullet points, free-form text, whatever you have. AI will extract what it needs." style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; line-height: 1.5;"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <button id="btn-generate-intake" onclick="generateQueriesFromIntake()" style="background: #3b82f6; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px;">Generate Queries from Intake</button>
+                    <span id="intake-status" style="margin-left: 10px; color: #22c55e;"></span>
+                </div>
+
+                <div style="margin-top: 8px;">
+                    <button onclick="document.getElementById('intake-details').style.display = document.getElementById('intake-details').style.display === 'none' ? 'block' : 'none'" style="background: none; border: none; color: #888; cursor: pointer; font-size: 12px; text-decoration: underline;">Or fill in individual fields manually</button>
+                </div>
+                <div id="intake-details" style="display: none; margin-top: 12px;">
+                    <div class="form-group">
+                        <label>How do people typically find you right now?</label>
+                        <textarea id="intake-discovery" rows="2" oninput="updatePreview()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Specific services or offerings you want to be known for?</label>
+                        <textarea id="intake-services" rows="2" oninput="updatePreview()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Target audience you're trying to reach?</label>
+                        <textarea id="intake-audience" rows="2" oninput="updatePreview()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"></textarea>
+                    </div>
+                </div>
+
+                <div class="section-header">Executive Summary (Auto-generated after audit)</div>
+
+                <div class="form-group">
+                    <label>Visibility Level</label>
+                    <input type="text" id="visibility-level" value="Run audit to calculate" readonly style="background: #f5f5f5;">
+                </div>
+
+                <div class="form-group">
+                    <label>Key Findings</label>
+                    <div id="findings-list" class="findings-list" style="background: #f9f9f9; padding: 10px; border-radius: 4px; min-height: 60px;">
+                        <em style="color: #999;">Key findings will be auto-generated after running the audit</em>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Queries Tab -->
+            <div id="tab-queries" class="tab-content">
+                <div id="queries-list"></div>
+                <button class="btn-add" onclick="addQuery()">+ Add Query</button>
+            </div>
+
+            <!-- Platforms Tab -->
+            <div id="tab-platforms" class="tab-content">
+                <div class="platform-grid">
+                    <div class="platform-item">
+                        <label>ChatGPT (OpenAI)</label>
+                        <div class="score-input">
+                            <input type="number" id="platform-chatgpt-score" value="12" min="0" max="30" oninput="updatePreview()">
+                            <span>/ 30</span>
+                        </div>
+                        <input type="text" id="platform-chatgpt-note" value="Strong on brand, weak on info" style="margin-top: 8px;" oninput="updatePreview()">
+                    </div>
+                    <div class="platform-item">
+                        <label>Perplexity AI</label>
+                        <div class="score-input">
+                            <input type="number" id="platform-perplexity-score" value="14" min="0" max="30" oninput="updatePreview()">
+                            <span>/ 30</span>
+                        </div>
+                        <input type="text" id="platform-perplexity-note" value="Best performer with good citations" style="margin-top: 8px;" oninput="updatePreview()">
+                    </div>
+                    <div class="platform-item">
+                        <label>Claude (Anthropic)</label>
+                        <div class="score-input">
+                            <input type="number" id="platform-claude-score" value="11" min="0" max="30" oninput="updatePreview()">
+                            <span>/ 30</span>
+                        </div>
+                        <input type="text" id="platform-claude-note" value="Moderate presence" style="margin-top: 8px;" oninput="updatePreview()">
+                    </div>
+                    <div class="platform-item">
+                        <label>Gemini (Google)</label>
+                        <div class="score-input">
+                            <input type="number" id="platform-gemini-score" value="10" min="0" max="30" oninput="updatePreview()">
+                            <span>/ 30</span>
+                        </div>
+                        <input type="text" id="platform-gemini-note" value="Lowest performer" style="margin-top: 8px;" oninput="updatePreview()">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recommendations Tab -->
+            <div id="tab-recommendations" class="tab-content">
+                <div id="recommendations-list"></div>
+                <button class="btn-add" onclick="addRecommendation()">+ Add Recommendation</button>
+            </div>
+
+            <!-- Competitors Tab -->
+            <div id="tab-competitors" class="tab-content">
+                <div id="competitors-list"></div>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button class="btn-add" onclick="addCompetitor()">+ Add Competitor</button>
+                    <button id="btn-check-visibility" class="btn-add" onclick="checkCompetitorVisibility()" style="background: #3b82f6;">Check Visibility</button>
+                </div>
+                <div id="competitor-check-status" style="margin-top: 10px; display: none;"></div>
+            </div>
+
+            <!-- History Tab -->
+            <div id="tab-history" class="tab-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div class="section-header" style="margin: 0;">Audit History</div>
+                    <button class="btn-add" onclick="startNewAudit()">+ New Audit</button>
+                </div>
+                <div id="history-list" style="min-height: 100px;">
+                    <em style="color: #999;">Click this tab to load your audit history.</em>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Panel -->
+        <div class="preview-panel">
+            <div class="preview-header">Live Preview</div>
+            <iframe id="preview-frame" class="preview-frame"></iframe>
+        </div>
+    </div>
+
+    <script>
+        // Audit history tracking
+        let currentAuditId = null;
+
+        // Data storage
+        let queries = [];
+
+        let recommendations = [
+            {
+                title: "Create Content Hub",
+                priority: "high",
+                issue: "Unique differentiator not visible to AI engines",
+                actions: ["Create dedicated page", "Add FAQ format for AI extraction"]
+            },
+            {
+                title: "Optimize for Local Queries",
+                priority: "high",
+                issue: "Not appearing in top local recommendations",
+                actions: ["Add target keywords to homepage", "Build structured data schema"]
+            },
+        ];
+
+        let competitors = [
+            { name: "Competitor 1", website: "", visibility: "~55%", visibility_percentage: null, visibility_tested: false, strengths: "Appears first in searches", your_advantage: "Your unique value" },
+            { name: "Competitor 2", website: "", visibility: "~40%", visibility_percentage: null, visibility_tested: false, strengths: "Strong brand mentions", your_advantage: "Your advantage here" },
+        ];
+
+        let findings = [
+            "Strong Brand Recognition: Direct brand searches consistently return your business",
+            "Local Visibility Gap: Missing from 'best' recommendations",
+            "Content Opportunity: Unique differentiators not surfacing",
+        ];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set audit date to today
+            const today = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('client-audit-date').value = today.toLocaleDateString('en-US', options);
+
+            renderQueries();
+            renderRecommendations();
+            renderCompetitors();
+            renderFindings();
+            updatePreview();
+            checkApiStatus();
+        });
+
+        // Analyze website
+        async function analyzeWebsite() {
+            const url = document.getElementById('analyze-url').value.trim();
+            const statusEl = document.getElementById('analyze-status');
+            const btn = document.getElementById('btn-analyze');
+
+            if (!url) {
+                alert('Please enter a website URL');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Analyzing...';
+            statusEl.textContent = 'Fetching website and analyzing with AI...';
+            statusEl.style.color = '#E77206';
+
+            try {
+                const response = await fetch('/analyze-website', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+
+                const result = await response.json();
+
+                if (result.error) {
+                    statusEl.textContent = 'Error: ' + result.error;
+                    statusEl.style.color = '#dc3545';
+                    return;
+                }
+
+                const data = result.data;
+
+                // Fill in client info
+                document.getElementById('client-name').value = data.business_name || '';
+                document.getElementById('client-website').value = url;
+                document.getElementById('client-industry').value = data.industry || '';
+                document.getElementById('client-location').value = data.location || '';
+
+                // IMPORTANT: Fill in competitors ONLY if user hasn't already entered their own
+                // See IMPLEMENTATION_NOTES.md - User input takes priority over AI detection
+                const currentCompetitors = document.getElementById('client-competitors').value.trim();
+                const isDefaultOrEmpty = !currentCompetitors ||
+                    currentCompetitors === 'Competitor 1, Competitor 2, Competitor 3';
+
+                if (data.competitors && data.competitors.length > 0 && isDefaultOrEmpty) {
+                    const competitorNames = data.competitors.map(c => c.name).join(', ');
+                    document.getElementById('client-competitors').value = competitorNames;
+                    // Store full competitor data for the report
+                    window.competitorData = data.competitors;
+                } else if (!isDefaultOrEmpty) {
+                    // User has their own competitors - clear window.competitorData so we use their input
+                    window.competitorData = null;
+                }
+
+                // Store services and unique value for recommendations
+                window.businessServices = data.services || [];
+                window.uniqueValue = data.unique_value || '';
+
+                // Fill in queries
+                if (data.queries && data.queries.length > 0) {
+                    queries = data.queries.map(q => ({
+                        query: q.query,
+                        type: q.type,
+                        score: 0,
+                        finding: 'Not tested yet'
+                    }));
+                    renderQueries();
+                }
+
+                statusEl.textContent = `✓ Found: ${data.business_name} - ${data.queries?.length || 0} queries generated`;
+                statusEl.style.color = '#28a745';
+
+                updatePreview();
+
+            } catch (err) {
+                statusEl.textContent = 'Error: ' + err.message;
+                statusEl.style.color = '#dc3545';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Analyze Website';
+            }
+        }
+
+        // Check API status
+        function checkApiStatus() {
+            fetch('/check-api-keys')
+                .then(response => response.json())
+                .then(data => {
+                    const statusEl = document.getElementById('api-status');
+                    const connected = [];
+                    if (data.openai) connected.push('ChatGPT');
+                    if (data.anthropic) connected.push('Claude');
+                    if (data.google) connected.push('Gemini');
+                    if (data.perplexity) connected.push('Perplexity');
+
+                    if (connected.length > 0) {
+                        statusEl.textContent = connected.join(' + ') + ' Connected';
+                        statusEl.className = 'api-status connected';
+                    } else {
+                        statusEl.textContent = 'No API Keys';
+                        statusEl.className = 'api-status disconnected';
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('api-status').textContent = 'API Error';
+                });
+        }
+
+        // Generate queries from intake questions
+        async function generateQueriesFromIntake() {
+            const pasteText = document.getElementById('intake-paste').value.trim();
+            const discovery = document.getElementById('intake-discovery').value.trim();
+            const services = document.getElementById('intake-services').value.trim();
+            const audience = document.getElementById('intake-audience').value.trim();
+            const clientName = document.getElementById('client-name').value.trim();
+            const location = document.getElementById('client-location').value.trim();
+            const industry = document.getElementById('client-industry').value.trim();
+            const statusEl = document.getElementById('intake-status');
+            const btn = document.getElementById('btn-generate-intake');
+
+            // If paste box has content, use AI endpoint
+            if (pasteText) {
+                btn.disabled = true;
+                btn.textContent = 'Analyzing...';
+                statusEl.textContent = 'AI is reading the questionnaire answers...';
+                statusEl.style.color = '#E77206';
+
+                try {
+                    const response = await fetch('/generate-from-intake', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            intake_text: pasteText,
+                            client_name: clientName,
+                            location: location,
+                            industry: industry,
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (result.error) {
+                        statusEl.textContent = 'Error: ' + result.error;
+                        statusEl.style.color = '#dc3545';
+                        return;
+                    }
+
+                    const data = result.data;
+
+                    // Fill in client details if they were extracted and fields are empty
+                    if (data.client_name && !clientName) {
+                        document.getElementById('client-name').value = data.client_name;
+                    }
+                    if (data.industry && !industry) {
+                        document.getElementById('client-industry').value = data.industry;
+                    }
+                    if (data.location && !location) {
+                        document.getElementById('client-location').value = data.location;
+                    }
+
+                    // Fill in the individual fields too (for reference / runAudit fallback)
+                    if (data.services) {
+                        document.getElementById('intake-services').value =
+                            Array.isArray(data.services) ? data.services.join(', ') : data.services;
+                        window.businessServices = data.services;
+                    }
+                    if (data.discovery) {
+                        document.getElementById('intake-discovery').value = data.discovery;
+                    }
+                    if (data.audience) {
+                        document.getElementById('intake-audience').value = data.audience;
+                    }
+
+                    // Load queries
+                    if (data.queries && data.queries.length > 0) {
+                        queries = data.queries.map(q => ({
+                            query: q.query,
+                            type: q.type,
+                            score: 0,
+                            finding: ''
+                        }));
+                        renderQueries();
+                    }
+
+                    statusEl.textContent = `Generated ${queries.length} queries from intake answers`;
+                    statusEl.style.color = '#22c55e';
+                    updatePreview();
+
+                } catch (err) {
+                    statusEl.textContent = 'Error: ' + err.message;
+                    statusEl.style.color = '#dc3545';
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Generate Queries from Intake';
+                }
+                return;
+            }
+
+            // Fallback: use individual fields (old behavior)
+            if (!clientName) {
+                alert('Please enter a client name first (analyze a website or fill in manually)');
+                return;
+            }
+
+            if (!services && !audience && !discovery) {
+                alert('Please paste the client\'s answers or fill in the individual fields');
+                return;
+            }
+
+            statusEl.textContent = 'Generating targeted queries...';
+            statusEl.style.color = '#E77206';
+
+            const newQueries = [];
+
+            // Brand queries
+            newQueries.push({ query: `${clientName} reviews`, type: 'Brand', score: 0, finding: '' });
+            newQueries.push({ query: `is ${clientName} good`, type: 'Brand', score: 0, finding: '' });
+
+            // Service-based queries
+            if (services) {
+                const serviceList = services.split(',').map(s => s.trim()).filter(s => s);
+                serviceList.slice(0, 3).forEach(service => {
+                    if (location) {
+                        newQueries.push({ query: `${service} in ${location}`, type: 'Local', score: 0, finding: '' });
+                    }
+                    newQueries.push({ query: `best ${service} near me`, type: 'Local', score: 0, finding: '' });
+                });
+            }
+
+            // Audience-based queries
+            if (audience) {
+                if (services) {
+                    const mainService = services.split(',')[0].trim();
+                    newQueries.push({ query: `${mainService} for ${audience}`, type: 'Info', score: 0, finding: '' });
+                }
+            }
+
+            // Discovery-based queries
+            if (discovery && discovery.toLowerCase().includes('google')) {
+                newQueries.push({ query: `how to find ${services.split(',')[0] || 'local services'}`, type: 'Info', score: 0, finding: '' });
+            }
+
+            // Comparison query
+            const competitorInput = document.getElementById('client-competitors').value;
+            if (competitorInput && competitorInput.includes(',')) {
+                const firstComp = competitorInput.split(',')[0].trim();
+                newQueries.push({ query: `${clientName} vs ${firstComp}`, type: 'Compare', score: 0, finding: '' });
+            }
+
+            queries = newQueries.slice(0, 10);
+            renderQueries();
+            updatePreview();
+
+            statusEl.textContent = `Generated ${queries.length} targeted queries`;
+            statusEl.style.color = '#22c55e';
+        }
+
+        // Run automated audit
+        async function runAudit() {
+            const clientName = document.getElementById('client-name').value;
+            const clientWebsite = document.getElementById('client-website').value;
+
+            if (!clientName) {
+                alert('Please enter a client name first');
+                return;
+            }
+
+            // Check if paste box or intake fields are filled - if so, generate queries first
+            const pasteText = document.getElementById('intake-paste').value.trim();
+            const intakeServices = document.getElementById('intake-services').value.trim();
+            const intakeAudience = document.getElementById('intake-audience').value.trim();
+            const intakeDiscovery = document.getElementById('intake-discovery').value.trim();
+            const location = document.getElementById('client-location').value.trim();
+
+            // If paste box has content and no queries yet, generate from intake first
+            if (pasteText && queries.length === 0) {
+                await generateQueriesFromIntake();
+                if (queries.length === 0) {
+                    alert('Could not generate queries from intake. Please add queries manually.');
+                    const runBtn = document.querySelector('.btn-run-audit');
+                    runBtn.disabled = false;
+                    runBtn.textContent = 'Run Audit';
+                    return;
+                }
+            }
+
+            if (intakeServices && queries.length === 0) {
+                // Only auto-generate if no queries exist yet (don't overwrite manual edits)
+                const newQueries = [];
+                const industry = document.getElementById('client-industry').value.trim().toLowerCase();
+                const isPetCare = industry.includes('pet') || clientName.toLowerCase().includes('pet');
+
+                // Brand queries (2)
+                newQueries.push({ query: `${clientName} reviews`, type: 'Brand', score: 0, finding: '' });
+                newQueries.push({ query: `is ${clientName} good`, type: 'Brand', score: 0, finding: '' });
+
+                // Service-based queries - make them realistic
+                const serviceList = intakeServices.split(',').map(s => s.trim()).filter(s => s);
+
+                serviceList.forEach(service => {
+                    let searchTerm = service.toLowerCase();
+
+                    // Make vague terms more specific for pet care industry
+                    if (isPetCare) {
+                        if (searchTerm === 'hiking' || searchTerm === 'hikes') {
+                            searchTerm = 'dog hiking services';
+                        } else if (searchTerm === 'boarding' || searchTerm === 'boarding facility') {
+                            searchTerm = 'dog boarding';
+                        } else if (searchTerm === 'cat care') {
+                            searchTerm = 'cat sitting services';
+                        }
+                    }
+
+                    // Local queries with location
+                    if (location) {
+                        newQueries.push({ query: `best ${searchTerm} in ${location}`, type: 'Local', score: 0, finding: '' });
+                    }
+                    newQueries.push({ query: `${searchTerm} near me`, type: 'Local', score: 0, finding: '' });
+                });
+
+                // Realistic informational queries (what people actually search)
+                if (isPetCare) {
+                    newQueries.push({ query: `how much does dog boarding cost`, type: 'Info', score: 0, finding: '' });
+                    newQueries.push({ query: `best pet sitters ${location || 'near me'}`, type: 'Info', score: 0, finding: '' });
+                } else {
+                    const mainService = serviceList[0] || 'service';
+                    newQueries.push({ query: `how much does ${mainService} cost`, type: 'Info', score: 0, finding: '' });
+                }
+
+                // Comparison query with manually entered competitors
+                const competitorInput = document.getElementById('client-competitors').value;
+                const competitorNames = competitorInput.split(',').map(c => c.trim()).filter(c => c && c !== 'Competitor 1' && c !== 'Competitor 2' && c !== 'Competitor 3');
+                if (competitorNames.length > 0) {
+                    newQueries.push({ query: `${clientName} vs ${competitorNames[0]}`, type: 'Compare', score: 0, finding: '' });
+                }
+
+                // Use intake-generated queries (limit to 10)
+                queries = newQueries.slice(0, 10);
+                renderQueries();
+                document.getElementById('intake-status').textContent = `Generated ${queries.length} queries from intake`;
+                document.getElementById('intake-status').style.color = '#22c55e';
+            }
+
+            if (queries.length === 0) {
+                alert('Please add at least one query to test');
+                return;
+            }
+
+            // Show progress
+            const progressBar = document.getElementById('progress-bar');
+            const progressFill = document.getElementById('progress-fill');
+            const progressText = document.getElementById('progress-text');
+            const runBtn = document.querySelector('.btn-run-audit');
+
+            progressBar.style.display = 'block';
+            progressText.style.display = 'block';
+            runBtn.disabled = true;
+            runBtn.textContent = 'Running...';
+
+            progressText.textContent = `Running ${queries.length} queries on ChatGPT...`;
+            progressFill.style.width = '10%';
+
+            try {
+                const packageType = document.getElementById('client-package').value;
+                const response = await fetch('/run-audit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_name: clientName,
+                        client_website: clientWebsite,
+                        queries: queries,
+                        package_type: packageType
+                    })
+                });
+
+                progressFill.style.width = '80%';
+
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+
+                progressFill.style.width = '100%';
+                progressText.textContent = `Audit complete! Score: ${data.total_score}/${data.max_score} (${data.percentage}%)`;
+
+                // Update queries with results
+                if (data.results) {
+                    queries = data.results.map(r => ({
+                        query: r.query,
+                        type: r.type,
+                        score: r.score,
+                        finding: r.finding
+                    }));
+                    renderQueries();
+                }
+
+                // Update visibility level
+                if (data.visibility_level) {
+                    document.getElementById('visibility-level').value =
+                        data.visibility_level.charAt(0).toUpperCase() + data.visibility_level.slice(1) +
+                        ` (${data.percentage}%)`;
+                }
+
+                // Update key findings
+                if (data.key_findings && data.key_findings.length > 0) {
+                    findings = data.key_findings;
+                    const findingsEl = document.getElementById('findings-list');
+                    findingsEl.innerHTML = data.key_findings.map(f =>
+                        `<div style="margin-bottom: 8px; padding: 8px; background: white; border-left: 3px solid #E77206;">
+                            <strong>${f.split(':')[0]}:</strong>${f.split(':').slice(1).join(':')}
+                        </div>`
+                    ).join('');
+                }
+
+                // Update platform scores
+                if (data.platforms) {
+                    const maxScore = queries.length * 3;
+
+                    // Update ChatGPT
+                    document.getElementById('platform-chatgpt-score').value = data.platforms.chatgpt.score;
+                    document.getElementById('platform-chatgpt-note').value = data.platforms.chatgpt.note;
+
+                    // Update Claude
+                    document.getElementById('platform-claude-score').value = data.platforms.claude.score;
+                    document.getElementById('platform-claude-note').value = data.platforms.claude.note;
+
+                    // Update Gemini
+                    document.getElementById('platform-gemini-score').value = data.platforms.gemini.score;
+                    document.getElementById('platform-gemini-note').value = data.platforms.gemini.note;
+
+                    // Update Perplexity
+                    document.getElementById('platform-perplexity-score').value = data.platforms.perplexity.score;
+                    document.getElementById('platform-perplexity-note').value = data.platforms.perplexity.note;
+                }
+
+                // Update recommendations from audit
+                if (data.recommendations && data.recommendations.length > 0) {
+                    recommendations = data.recommendations;
+                    renderRecommendations();
+                }
+
+                // Auto-run competitor visibility check
+                const competitorInput = document.getElementById('client-competitors').value;
+                const competitorNames = competitorInput.split(',').map(c => c.trim()).filter(c => c && c !== 'Competitor 1' && c !== 'Competitor 2' && c !== 'Competitor 3');
+
+                if (competitorNames.length > 0) {
+                    progressText.textContent = 'Checking competitor visibility...';
+
+                    // IMPORTANT: ALWAYS use manually entered competitor names, NOT window.competitorData
+                    // See IMPLEMENTATION_NOTES.md - User input takes priority over AI detection
+                    let competitorsToCheck = competitorNames.map(name => ({
+                        name: name,
+                        website: ''
+                    }));
+
+                    // Select 4 representative queries for competitor check
+                    let selectedQueries = [];
+                    const brandQuery = queries.find(q => q.type === 'Brand');
+                    const localQueries = queries.filter(q => q.type === 'Local').slice(0, 2);
+                    const infoQuery = queries.find(q => q.type === 'Info');
+                    if (brandQuery) selectedQueries.push(brandQuery);
+                    selectedQueries = selectedQueries.concat(localQueries);
+                    if (infoQuery) selectedQueries.push(infoQuery);
+                    if (selectedQueries.length < 4) selectedQueries = queries.slice(0, 4);
+
+                    try {
+                        const compResponse = await fetch('/run-competitor-audit', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                competitors: competitorsToCheck,
+                                queries: selectedQueries,
+                                client_visibility: data.percentage || 0,
+                                client_name: clientName,
+                                industry: document.getElementById('client-industry').value || '',
+                                location: document.getElementById('client-location').value || '',
+                                client_services: document.getElementById('intake-services').value || ''
+                            })
+                        });
+
+                        const compData = await compResponse.json();
+
+                        if (compData.success && compData.competitors) {
+                            competitors = compData.competitors.map(c => ({
+                                name: c.name,
+                                website: c.website || '',
+                                visibility: c.visibility_display,
+                                visibility_percentage: c.visibility_percentage,
+                                visibility_tested: true,
+                                strengths: c.strengths || 'Competitor in market',
+                                your_advantage: c.your_advantage || "Personalized service and local expertise"
+                            }));
+                            renderCompetitors();
+
+                            progressText.textContent = `Audit complete! You rank #${compData.comparison.client_rank} of ${compData.comparison.total_compared}`;
+                        }
+                    } catch (compErr) {
+                        console.error('Competitor check failed:', compErr);
+                        // Fall back to estimates using manually entered names
+                        const clientScore = data.percentage || 0;
+                        competitors = competitorNames.map((name) => ({
+                            name: name,
+                            website: "",
+                            visibility: `~${Math.max(20, Math.min(80, clientScore + (Math.random() * 30 - 15))).toFixed(0)}%`,
+                            visibility_percentage: null,
+                            visibility_tested: false,
+                            strengths: 'Competitor in market',
+                            your_advantage: window.uniqueValue || "Personalized service and community focus"
+                        }));
+                        renderCompetitors();
+                    }
+                } else {
+                    // No competitors entered - leave competitors empty or use defaults
+                    const clientScore = data.percentage || 0;
+                    competitors = [];
+                    if (window.competitorData && window.competitorData.length > 0) {
+                        // Only use AI-detected competitors if user hasn't entered any
+                        competitors = window.competitorData.map((c) => ({
+                            name: c.name,
+                            website: c.website || "",
+                            visibility: `~${Math.max(20, Math.min(80, clientScore + (Math.random() * 30 - 15))).toFixed(0)}%`,
+                            visibility_percentage: null,
+                            visibility_tested: false,
+                            strengths: c.strength || c.type,
+                            your_advantage: window.uniqueValue || "Personalized service and community focus"
+                        }));
+                        renderCompetitors();
+                    }
+                }
+
+                updatePreview();
+
+                // Auto-save after audit completes
+                await saveAudit(true);
+
+                setTimeout(() => {
+                    progressBar.style.display = 'none';
+                    progressText.style.display = 'none';
+                    progressFill.style.width = '0%';
+                }, 3000);
+
+            } catch (err) {
+                alert('Error running audit: ' + err.message);
+            } finally {
+                runBtn.disabled = false;
+                runBtn.textContent = 'Run Audit';
+            }
+        }
+
+        // Check competitor visibility
+        async function checkCompetitorVisibility() {
+            if (competitors.length === 0) {
+                alert('Please add at least one competitor first');
+                return;
+            }
+
+            if (queries.length === 0) {
+                alert('Please run the main audit first to generate queries');
+                return;
+            }
+
+            const btn = document.getElementById('btn-check-visibility');
+            const statusEl = document.getElementById('competitor-check-status');
+
+            btn.disabled = true;
+            btn.textContent = 'Checking...';
+            statusEl.style.display = 'block';
+            statusEl.innerHTML = '<span style="color: #3b82f6;">Running visibility checks on AI platforms...</span>';
+
+            // Select representative queries (1 Brand, 2 Local, 1 Info, or first 4)
+            let selectedQueries = [];
+            const brandQuery = queries.find(q => q.type === 'Brand');
+            const localQueries = queries.filter(q => q.type === 'Local').slice(0, 2);
+            const infoQuery = queries.find(q => q.type === 'Info');
+
+            if (brandQuery) selectedQueries.push(brandQuery);
+            selectedQueries = selectedQueries.concat(localQueries);
+            if (infoQuery) selectedQueries.push(infoQuery);
+
+            // Fallback to first 4 queries if not enough type variety
+            if (selectedQueries.length < 4) {
+                selectedQueries = queries.slice(0, 4);
+            }
+
+            // Get client visibility for comparison
+            const visibilityField = document.getElementById('visibility-level').value;
+            const clientVisibility = parseFloat(visibilityField.match(/(\d+(\.\d+)?)/)?.[1] || 0);
+
+            try {
+                const response = await fetch('/run-competitor-audit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        competitors: competitors.map(c => ({ name: c.name, website: c.website || '' })),
+                        queries: selectedQueries,
+                        client_visibility: clientVisibility,
+                        client_name: document.getElementById('client-name').value || '',
+                        industry: document.getElementById('client-industry').value || '',
+                        location: document.getElementById('client-location').value || '',
+                        client_services: document.getElementById('intake-services').value || ''
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    statusEl.innerHTML = `<span style="color: #ef4444;">Error: ${data.error}</span>`;
+                    return;
+                }
+
+                // Update competitors with actual visibility data, strengths, and advantages
+                if (data.competitors) {
+                    data.competitors.forEach(result => {
+                        const compIndex = competitors.findIndex(c => c.name === result.name);
+                        if (compIndex !== -1) {
+                            competitors[compIndex].visibility = result.visibility_display;
+                            competitors[compIndex].visibility_percentage = result.visibility_percentage;
+                            competitors[compIndex].visibility_tested = true;
+                            if (result.strengths) competitors[compIndex].strengths = result.strengths;
+                            if (result.your_advantage) competitors[compIndex].your_advantage = result.your_advantage;
+                        }
+                    });
+                    renderCompetitors();
+                    updatePreview();
+                }
+
+                // Show comparison results
+                const comparison = data.comparison;
+                statusEl.innerHTML = `
+                    <div style="background: #f0fdf4; padding: 10px; border-radius: 4px; border-left: 3px solid #22c55e;">
+                        <strong>Visibility Check Complete!</strong><br>
+                        Leader: ${comparison.leader} | Your Rank: #${comparison.client_rank} of ${comparison.total_compared}<br>
+                        <small>Tested ${selectedQueries.length} queries across 4 AI platforms (${data.api_calls_made} API calls)</small>
+                    </div>
+                `;
+
+            } catch (err) {
+                statusEl.innerHTML = `<span style="color: #ef4444;">Error: ${err.message}</span>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Check Visibility';
+            }
+        }
+
+        // Tab switching
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tabName).classList.add('active');
+
+            if (tabName === 'history') {
+                loadAuditHistory();
+            }
+        }
+
+        // Render functions
+        function renderQueries() {
+            const container = document.getElementById('queries-list');
+            container.innerHTML = queries.map((q, i) => `
+                <div class="list-item">
+                    <div class="list-item-header">
+                        <h4>Query ${i + 1}</h4>
+                        <button class="btn-remove" onclick="removeQuery(${i})">Remove</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Query</label>
+                            <input type="text" value="${q.query}" onchange="updateQuery(${i}, 'query', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label>Type</label>
+                            <select onchange="updateQuery(${i}, 'type', this.value)">
+                                <option ${q.type === 'Brand' ? 'selected' : ''}>Brand</option>
+                                <option ${q.type === 'Local' ? 'selected' : ''}>Local</option>
+                                <option ${q.type === 'Info' ? 'selected' : ''}>Info</option>
+                                <option ${q.type === 'Compare' ? 'selected' : ''}>Compare</option>
+                                <option ${q.type === 'Niche' ? 'selected' : ''}>Niche</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Score (out of 12)</label>
+                            <div class="score-input">
+                                <button class="score-btn minus" onclick="adjustScore(${i}, -1)">-</button>
+                                <input type="number" value="${q.score}" min="0" max="12" onchange="updateQuery(${i}, 'score', parseInt(this.value))">
+                                <button class="score-btn plus" onclick="adjustScore(${i}, 1)">+</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Finding</label>
+                            <input type="text" value="${q.finding}" onchange="updateQuery(${i}, 'finding', this.value)">
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderRecommendations() {
+            const container = document.getElementById('recommendations-list');
+            container.innerHTML = recommendations.map((r, i) => `
+                <div class="list-item">
+                    <div class="list-item-header">
+                        <h4>Recommendation ${i + 1}</h4>
+                        <button class="btn-remove" onclick="removeRecommendation(${i})">Remove</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Title</label>
+                            <input type="text" value="${r.title}" onchange="updateRecommendation(${i}, 'title', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label>Priority</label>
+                            <select onchange="updateRecommendation(${i}, 'priority', this.value)">
+                                <option ${r.priority === 'high' ? 'selected' : ''} value="high">High</option>
+                                <option ${r.priority === 'medium' ? 'selected' : ''} value="medium">Medium</option>
+                                <option ${r.priority === 'low' ? 'selected' : ''} value="low">Low</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Issue</label>
+                        <input type="text" value="${r.issue}" onchange="updateRecommendation(${i}, 'issue', this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>Actions</label>
+                        <div class="actions-list">
+                            ${r.actions.map((a, ai) => `
+                                <div class="action-item">
+                                    <input type="text" value="${a}" onchange="updateAction(${i}, ${ai}, this.value)">
+                                    <button class="btn-remove-small" onclick="removeAction(${i}, ${ai})">×</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <button class="btn-add-small" onclick="addAction(${i})">+ Add Action</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderCompetitors() {
+            const container = document.getElementById('competitors-list');
+            container.innerHTML = competitors.map((c, i) => `
+                <div class="list-item">
+                    <div class="list-item-header">
+                        <h4>Competitor ${i + 1}</h4>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="visibility-badge ${c.visibility_tested ? 'tested' : 'estimated'}" style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; ${c.visibility_tested ? 'background: #22c55e; color: white;' : 'background: #f59e0b; color: white;'}">
+                                ${c.visibility_tested ? c.visibility : c.visibility + ' (est)'}
+                            </span>
+                            <button class="btn-remove" onclick="removeCompetitor(${i})">Remove</button>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" value="${c.name}" onchange="updateCompetitor(${i}, 'name', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label>Website (optional)</label>
+                            <input type="text" value="${c.website || ''}" placeholder="https://competitor.com" onchange="updateCompetitor(${i}, 'website', this.value)">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Their Strengths</label>
+                            <input type="text" value="${c.strengths}" onchange="updateCompetitor(${i}, 'strengths', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label>Your Advantage</label>
+                            <input type="text" value="${c.your_advantage}" onchange="updateCompetitor(${i}, 'your_advantage', this.value)">
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderFindings() {
+            const container = document.getElementById('findings-list');
+            container.innerHTML = findings.map((f, i) => `
+                <div class="finding-item">
+                    <input type="text" value="${f}" onchange="updateFinding(${i}, this.value)">
+                    <button class="btn-remove-small" onclick="removeFinding(${i})">×</button>
+                </div>
+            `).join('');
+        }
+
+        // Add functions
+        function addQuery() {
+            queries.push({ query: "New Query", type: "Brand", score: 0, finding: "Finding here" });
+            renderQueries();
+            updatePreview();
+        }
+
+        function addRecommendation() {
+            recommendations.push({ title: "New Recommendation", priority: "medium", issue: "Issue description", actions: ["Action 1"] });
+            renderRecommendations();
+            updatePreview();
+        }
+
+        function addCompetitor() {
+            competitors.push({ name: "New Competitor", website: "", visibility: "~50%", visibility_percentage: null, visibility_tested: false, strengths: "Their strengths", your_advantage: "Your advantage" });
+            renderCompetitors();
+            updatePreview();
+        }
+
+        function addFinding() {
+            findings.push("New finding here");
+            renderFindings();
+            updatePreview();
+        }
+
+        function addAction(recIndex) {
+            recommendations[recIndex].actions.push("New action");
+            renderRecommendations();
+            updatePreview();
+        }
+
+        // Remove functions
+        function removeQuery(index) {
+            queries.splice(index, 1);
+            renderQueries();
+            updatePreview();
+        }
+
+        function removeRecommendation(index) {
+            recommendations.splice(index, 1);
+            renderRecommendations();
+            updatePreview();
+        }
+
+        function removeCompetitor(index) {
+            competitors.splice(index, 1);
+            renderCompetitors();
+            updatePreview();
+        }
+
+        function removeFinding(index) {
+            findings.splice(index, 1);
+            renderFindings();
+            updatePreview();
+        }
+
+        function removeAction(recIndex, actionIndex) {
+            recommendations[recIndex].actions.splice(actionIndex, 1);
+            renderRecommendations();
+            updatePreview();
+        }
+
+        // Update functions
+        function updateQuery(index, field, value) {
+            queries[index][field] = value;
+            updatePreview();
+        }
+
+        function updateRecommendation(index, field, value) {
+            recommendations[index][field] = value;
+            updatePreview();
+        }
+
+        function updateCompetitor(index, field, value) {
+            competitors[index][field] = value;
+            updatePreview();
+        }
+
+        function updateFinding(index, value) {
+            findings[index] = value;
+            updatePreview();
+        }
+
+        function updateAction(recIndex, actionIndex, value) {
+            recommendations[recIndex].actions[actionIndex] = value;
+            updatePreview();
+        }
+
+        function adjustScore(index, delta) {
+            let newScore = queries[index].score + delta;
+            newScore = Math.max(0, Math.min(12, newScore));
+            queries[index].score = newScore;
+            renderQueries();
+            updatePreview();
+        }
+
+        // Get all form data
+        function getFormData() {
+            return {
+                brand_color: 'E97624',
+                client: {
+                    name: document.getElementById('client-name').value,
+                    website: document.getElementById('client-website').value,
+                    industry: document.getElementById('client-industry').value,
+                    location: document.getElementById('client-location').value,
+                    audit_date: document.getElementById('client-audit-date').value,
+                    package: document.getElementById('client-package').value,
+                    competitors: document.getElementById('client-competitors').value,
+                },
+                visibility_level: document.getElementById('visibility-level').value,
+                key_findings: findings,
+                queries: queries,
+                platforms: {
+                    chatgpt: {
+                        score: parseInt(document.getElementById('platform-chatgpt-score').value) || 0,
+                        max: 30,
+                        note: document.getElementById('platform-chatgpt-note').value
+                    },
+                    perplexity: {
+                        score: parseInt(document.getElementById('platform-perplexity-score').value) || 0,
+                        max: 30,
+                        note: document.getElementById('platform-perplexity-note').value
+                    },
+                    claude: {
+                        score: parseInt(document.getElementById('platform-claude-score').value) || 0,
+                        max: 30,
+                        note: document.getElementById('platform-claude-note').value
+                    },
+                    gemini: {
+                        score: parseInt(document.getElementById('platform-gemini-score').value) || 0,
+                        max: 30,
+                        note: document.getElementById('platform-gemini-note').value
+                    }
+                },
+                recommendations: recommendations,
+                competitors: competitors
+            };
+        }
+
+        // Update preview (debounced)
+        let previewTimeout;
+        function updatePreview() {
+            clearTimeout(previewTimeout);
+            previewTimeout = setTimeout(doUpdatePreview, 300);
+        }
+
+        function doUpdatePreview() {
+            const data = getFormData();
+
+            fetch('/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.text())
+            .then(html => {
+                const frame = document.getElementById('preview-frame');
+                frame.srcdoc = html;
+            })
+            .catch(err => console.error('Preview error:', err));
+        }
+
+        // Download PDF
+        function downloadPDF() {
+            const btn = document.getElementById('btn-download-pdf');
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+
+            const data = getFormData();
+
+            fetch('/download-pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = data.client.name.replace(/\s+/g, '_') + '_GEO_Audit_Report.pdf';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+
+                // Auto-save when PDF is downloaded
+                saveAudit(true);
+
+                btn.disabled = false;
+                btn.textContent = 'Download PDF';
+            })
+            .catch(err => {
+                console.error('Download error:', err);
+                btn.disabled = false;
+                btn.textContent = 'Download PDF';
+                alert('Error generating PDF. Please try again.');
+            });
+        }
+        // =====================================================================
+        // Audit History Functions
+        // =====================================================================
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        function showSaveIndicator(text) {
+            const indicator = document.getElementById('save-indicator');
+            indicator.textContent = text;
+            indicator.style.opacity = '1';
+            setTimeout(() => { indicator.style.opacity = '0'; }, 2500);
+        }
+
+        function getFullSavePayload() {
+            return {
+                audit_id: currentAuditId,
+                form_data: getFormData(),
+                intake_data: {
+                    discovery: document.getElementById('intake-discovery').value,
+                    services: document.getElementById('intake-services').value,
+                    audience: document.getElementById('intake-audience').value
+                }
+            };
+        }
+
+        async function saveAudit(silent) {
+            const payload = getFullSavePayload();
+
+            if (!payload.form_data.client.name.trim()) {
+                if (!silent) alert('Cannot save: client name is required.');
+                return null;
+            }
+
+            try {
+                const response = await fetch('/save-audit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    currentAuditId = result.audit_id;
+                    showSaveIndicator('Saved');
+                    return result.audit_id;
+                } else {
+                    if (!silent) alert('Save failed: ' + result.error);
+                    return null;
+                }
+            } catch (err) {
+                console.error('Save error:', err);
+                if (!silent) alert('Save failed: ' + err.message);
+                return null;
+            }
+        }
+
+        async function loadAuditHistory() {
+            const container = document.getElementById('history-list');
+            try {
+                const response = await fetch('/audits');
+                const data = await response.json();
+
+                if (!data.audits || data.audits.length === 0) {
+                    container.innerHTML = '<em style="color: #999;">No saved audits yet. Run an audit and it will appear here.</em>';
+                    return;
+                }
+
+                container.innerHTML = data.audits.map(audit => `
+                    <div class="list-item" style="cursor: pointer; ${currentAuditId === audit.id ? 'border-left: 4px solid var(--orange-primary); background: var(--cream-bg);' : ''}"
+                         onclick="loadAudit(${audit.id})">
+                        <div class="list-item-header">
+                            <div>
+                                <h4 style="margin: 0 0 4px 0;">${escapeHtml(audit.client_name)}</h4>
+                                <div style="font-size: 12px; color: #888;">
+                                    ${escapeHtml(audit.industry || '')}${audit.audit_date ? ' &mdash; ' + escapeHtml(audit.audit_date) : ''}
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                ${audit.visibility_percentage !== null
+                                    ? '<span style="background: var(--orange-primary); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">' + audit.visibility_percentage + '%</span>'
+                                    : ''}
+                                <span style="font-size: 11px; color: #aaa;">${escapeHtml(audit.package_type || '')}</span>
+                                <button class="btn-remove" onclick="event.stopPropagation(); deleteAudit(${audit.id})" style="font-size: 11px; padding: 4px 8px;">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                container.innerHTML = '<em style="color: #dc3545;">Error loading history: ' + err.message + '</em>';
+            }
+        }
+
+        async function loadAudit(auditId) {
+            try {
+                const response = await fetch('/audits/' + auditId);
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Error loading audit: ' + data.error);
+                    return;
+                }
+
+                const fd = data.form_data;
+                const intake = data.intake_data || {};
+
+                currentAuditId = data.id;
+
+                // Restore client info
+                const client = fd.client || {};
+                document.getElementById('client-name').value = client.name || '';
+                document.getElementById('client-website').value = client.website || '';
+                document.getElementById('client-industry').value = client.industry || '';
+                document.getElementById('client-location').value = client.location || '';
+                document.getElementById('client-audit-date').value = client.audit_date || '';
+                document.getElementById('client-package').value = client.package || 'Basic ($500)';
+                document.getElementById('client-competitors').value = client.competitors || '';
+
+                // Restore intake fields
+                document.getElementById('intake-discovery').value = intake.discovery || '';
+                document.getElementById('intake-services').value = intake.services || '';
+                document.getElementById('intake-audience').value = intake.audience || '';
+
+                // Restore visibility level
+                document.getElementById('visibility-level').value = fd.visibility_level || '';
+
+                // Restore key findings
+                findings = fd.key_findings || [];
+                renderFindings();
+
+                // Restore queries
+                queries = fd.queries || [];
+                renderQueries();
+
+                // Restore platform scores
+                const platforms = fd.platforms || {};
+                if (platforms.chatgpt) {
+                    document.getElementById('platform-chatgpt-score').value = platforms.chatgpt.score || 0;
+                    document.getElementById('platform-chatgpt-note').value = platforms.chatgpt.note || '';
+                }
+                if (platforms.claude) {
+                    document.getElementById('platform-claude-score').value = platforms.claude.score || 0;
+                    document.getElementById('platform-claude-note').value = platforms.claude.note || '';
+                }
+                if (platforms.gemini) {
+                    document.getElementById('platform-gemini-score').value = platforms.gemini.score || 0;
+                    document.getElementById('platform-gemini-note').value = platforms.gemini.note || '';
+                }
+                if (platforms.perplexity) {
+                    document.getElementById('platform-perplexity-score').value = platforms.perplexity.score || 0;
+                    document.getElementById('platform-perplexity-note').value = platforms.perplexity.note || '';
+                }
+
+                // Restore recommendations
+                recommendations = fd.recommendations || [];
+                renderRecommendations();
+
+                // Restore competitors
+                competitors = fd.competitors || [];
+                renderCompetitors();
+
+                // Update preview
+                updatePreview();
+
+                // Switch to Client Info tab
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                document.querySelector('.tab').classList.add('active');
+                document.getElementById('tab-client').classList.add('active');
+
+                showSaveIndicator('Loaded');
+
+            } catch (err) {
+                alert('Error loading audit: ' + err.message);
+            }
+        }
+
+        function startNewAudit() {
+            if (currentAuditId && !confirm('Start a new audit? Make sure your current audit is saved.')) {
+                return;
+            }
+
+            currentAuditId = null;
+
+            // Clear client fields
+            document.getElementById('client-name').value = '';
+            document.getElementById('client-website').value = '';
+            document.getElementById('client-industry').value = 'Industry Description';
+            document.getElementById('client-location').value = 'City, State';
+            document.getElementById('client-package').value = 'Basic ($500)';
+            document.getElementById('client-competitors').value = 'Competitor 1, Competitor 2, Competitor 3';
+            document.getElementById('analyze-url').value = '';
+
+            // Reset date to today
+            const today = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('client-audit-date').value = today.toLocaleDateString('en-US', options);
+
+            // Clear intake fields
+            document.getElementById('intake-discovery').value = '';
+            document.getElementById('intake-services').value = '';
+            document.getElementById('intake-audience').value = '';
+
+            // Reset visibility
+            document.getElementById('visibility-level').value = 'Run audit to calculate';
+
+            // Reset data arrays to defaults
+            queries = [];
+            recommendations = [
+                { title: "Create Content Hub", priority: "high", issue: "Unique differentiator not visible to AI engines", actions: ["Create dedicated page", "Add FAQ format for AI extraction"] },
+                { title: "Optimize for Local Queries", priority: "high", issue: "Not appearing in top local recommendations", actions: ["Add target keywords to homepage", "Build structured data schema"] },
+            ];
+            competitors = [
+                { name: "Competitor 1", website: "", visibility: "~55%", visibility_percentage: null, visibility_tested: false, strengths: "Appears first in searches", your_advantage: "Your unique value" },
+                { name: "Competitor 2", website: "", visibility: "~40%", visibility_percentage: null, visibility_tested: false, strengths: "Strong brand mentions", your_advantage: "Your advantage here" },
+            ];
+            findings = [
+                "Strong Brand Recognition: Direct brand searches consistently return your business",
+                "Local Visibility Gap: Missing from 'best' recommendations",
+                "Content Opportunity: Unique differentiators not surfacing",
+            ];
+
+            // Reset platform scores
+            document.getElementById('platform-chatgpt-score').value = 12;
+            document.getElementById('platform-chatgpt-note').value = 'Strong on brand, weak on info';
+            document.getElementById('platform-claude-score').value = 11;
+            document.getElementById('platform-claude-note').value = 'Moderate presence';
+            document.getElementById('platform-gemini-score').value = 10;
+            document.getElementById('platform-gemini-note').value = 'Lowest performer';
+            document.getElementById('platform-perplexity-score').value = 14;
+            document.getElementById('platform-perplexity-note').value = 'Best performer with good citations';
+
+            renderQueries();
+            renderRecommendations();
+            renderCompetitors();
+            renderFindings();
+            updatePreview();
+
+            // Switch to Client Info tab
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelector('.tab').classList.add('active');
+            document.getElementById('tab-client').classList.add('active');
+        }
+
+        async function deleteAudit(auditId) {
+            if (!confirm('Delete this audit? This cannot be undone.')) return;
+
+            try {
+                const response = await fetch('/audits/' + auditId, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    if (currentAuditId === auditId) {
+                        currentAuditId = null;
+                    }
+                    loadAuditHistory();
+                } else {
+                    alert('Delete failed: ' + result.error);
+                }
+            } catch (err) {
+                alert('Delete failed: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
