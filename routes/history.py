@@ -1,8 +1,8 @@
-"""History routes — save, list, load, and delete audits."""
+"""History routes — save, list, load, delete, and compare audits."""
 
 from flask import Blueprint, request, jsonify
 
-from database import save_audit, list_audits, get_audit, delete_audit
+from database import save_audit, list_audits, get_audit, delete_audit, get_comparison
 
 history_bp = Blueprint('history', __name__)
 
@@ -14,9 +14,10 @@ def save_audit_route():
     form_data = data.get('form_data', {})
     intake_data = data.get('intake_data', {})
     audit_id = data.get('audit_id')
+    previous_audit_id = data.get('previous_audit_id')
 
     try:
-        result_id = save_audit(form_data, intake_data, audit_id)
+        result_id = save_audit(form_data, intake_data, audit_id, previous_audit_id)
         return jsonify({"success": True, "audit_id": result_id})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -45,3 +46,12 @@ def delete_audit_route(audit_id):
     if delete_audit(audit_id):
         return jsonify({"success": True})
     return jsonify({"error": "Audit not found"}), 404
+
+
+@history_bp.route('/audits/<int:current_id>/compare/<int:previous_id>', methods=['GET'])
+def compare_audits_route(current_id, previous_id):
+    """Compare two audits and return the delta."""
+    comparison = get_comparison(current_id, previous_id)
+    if not comparison:
+        return jsonify({"error": "One or both audits not found"}), 404
+    return jsonify({"success": True, "comparison": comparison})

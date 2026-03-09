@@ -474,6 +474,15 @@
                 <div class="progress-bar-fill" id="progress-fill"></div>
             </div>
 
+            <!-- Comparison Panel (shown after re-audit) -->
+            <div id="comparison-panel" style="display: none; background: linear-gradient(135deg, #f0fdf4, #ecfdf5); border: 1px solid #86efac; border-radius: 12px; padding: 20px; margin-bottom: 15px; position: relative;">
+                <button onclick="hideComparisonPanel()" style="position: absolute; top: 8px; right: 12px; background: none; border: none; font-size: 18px; cursor: pointer; color: #888;">&times;</button>
+                <div style="font-weight: 700; font-size: 15px; margin-bottom: 12px; color: #166534;">Progress Since Last Audit</div>
+                <div id="comparison-summary" style="display: flex; gap: 20px; flex-wrap: wrap;"></div>
+                <div id="comparison-platforms" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-top: 15px;"></div>
+                <div id="comparison-queries" style="margin-top: 15px;"></div>
+            </div>
+
             <div class="tabs">
                 <button class="tab active" onclick="showTab('client')">Client Info</button>
                 <button class="tab" onclick="showTab('queries')">Queries</button>
@@ -664,6 +673,8 @@
     <script>
         // Audit history tracking
         let currentAuditId = null;
+        let reauditFromId = null;   // Set when re-auditing; links new audit to previous
+        let comparisonData = null;  // Holds comparison results after a re-audit
 
         // Data storage
         let queries = [];
@@ -1247,6 +1258,23 @@
                 // Auto-save after audit completes
                 await saveAudit(true);
 
+                // If this is a re-audit, fetch comparison data
+                if (reauditFromId && currentAuditId) {
+                    try {
+                        const compResp = await fetch(`/audits/${currentAuditId}/compare/${reauditFromId}`);
+                        const compResult = await compResp.json();
+                        if (compResult.success) {
+                            comparisonData = compResult.comparison;
+                            showComparisonPanel(comparisonData);
+                            // Re-save with comparison data included
+                            await saveAudit(true);
+                        }
+                    } catch (compErr) {
+                        console.error('Comparison fetch failed:', compErr);
+                    }
+                    reauditFromId = null;
+                }
+
                 setTimeout(() => {
                     progressBar.style.display = 'none';
                     progressText.style.display = 'none';
@@ -1718,9 +1746,14 @@
         }
 
         function getFullSavePayload() {
+            const formData = getFormData();
+            if (comparisonData) {
+                formData.comparison_data = comparisonData;
+            }
             return {
                 audit_id: currentAuditId,
-                form_data: getFormData(),
+                previous_audit_id: reauditFromId,
+                form_data: formData,
                 intake_data: {
                     discovery: document.getElementById('intake-discovery').value,
                     services: document.getElementById('intake-services').value,
@@ -1771,26 +1804,67 @@
                     return;
                 }
 
-                container.innerHTML = data.audits.map(audit => `
-                    <div class="list-item" style="cursor: pointer; ${currentAuditId === audit.id ? 'border-left: 4px solid var(--orange-primary); background: var(--cream-bg);' : ''}"
-                         onclick="loadAudit(${audit.id})">
-                        <div class="list-item-header">
-                            <div>
-                                <h4 style="margin: 0 0 4px 0;">${escapeHtml(audit.client_name)}</h4>
-                                <div style="font-size: 12px; color: #888;">
-                                    ${escapeHtml(audit.industry || '')}${audit.audit_date ? ' &mdash; ' + escapeHtml(audit.audit_date) : ''}
+                // Group audits by client name
+                const grouped = {};
+                data.audits.forEach(audit => {
+                    const key = (audit.client_name || '').trim().toLowerCase();
+                    if (!grouped[key]) grouped[key] = [];
+                    grouped[key].push(audit);
+                });
+
+                let html = '';
+                for (const [key, audits] of Object.entries(grouped)) {
+                    const latest = audits[0]; // Already sorted by updated_at DESC
+                    const hasMultiple = audits.length > 1;
+
+                    // Client group header
+                    html += `<div style="margin-bottom: 16px;">`;
+                    html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">`;
+                    html += `<div style="font-weight: 700; font-size: 14px; color: #333;">${escapeHtml(latest.client_name)}</div>`;
+
+                    // Trend indicator for clients with multiple audits
+                    if (hasMultiple && audits[0].visibility_percentage !== null && audits[1].visibility_percentage !== null) {
+                        const change = audits[0].visibility_percentage - audits[1].visibility_percentage;
+                        const sign = change >= 0 ? '+' : '';
+                        const color = change > 0 ? '#166534' : change < 0 ? '#dc2626' : '#888';
+                        const arrow = change > 0 ? '&#9650;' : change < 0 ? '&#9660;' : '&#8212;';
+                        html += `<span style="font-size: 12px; font-weight: 700; color: ${color};">${arrow} ${sign}${change.toFixed(1)}%</span>`;
+                    }
+                    html += `</div>`;
+
+                    // Individual audit rows
+                    audits.forEach((audit, idx) => {
+                        const isCurrent = currentAuditId === audit.id;
+                        const isLatest = idx === 0;
+                        html += `
+                            <div class="list-item" style="cursor: pointer; margin-bottom: 4px; ${isCurrent ? 'border-left: 4px solid var(--orange-primary); background: var(--cream-bg);' : ''}"
+                                 onclick="loadAudit(${audit.id})">
+                                <div class="list-item-header">
+                                    <div>
+                                        <div style="font-size: 13px; font-weight: ${isLatest ? '600' : '400'}; color: #555;">
+                                            ${escapeHtml(audit.audit_date || 'No date')}
+                                            ${audit.previous_audit_id ? '<span style="font-size: 10px; color: #166534; margin-left: 6px;">RE-AUDIT</span>' : ''}
+                                        </div>
+                                        <div style="font-size: 11px; color: #aaa;">
+                                            ${escapeHtml(audit.industry || '')} &middot; ${escapeHtml(audit.package_type || '')}
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        ${audit.visibility_percentage !== null
+                                            ? '<span style="background: var(--orange-primary); color: white; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 600;">' + audit.visibility_percentage + '%</span>'
+                                            : ''}
+                                        <button class="btn-remove" onclick="event.stopPropagation(); startReaudit(${audit.id})" style="font-size: 10px; padding: 3px 8px; background: var(--maroon-accent); color: white;">Re-Audit</button>
+                                        <button class="btn-remove" onclick="event.stopPropagation(); deleteAudit(${audit.id})" style="font-size: 10px; padding: 3px 8px;">Delete</button>
+                                    </div>
                                 </div>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                ${audit.visibility_percentage !== null
-                                    ? '<span style="background: var(--orange-primary); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">' + audit.visibility_percentage + '%</span>'
-                                    : ''}
-                                <span style="font-size: 11px; color: #aaa;">${escapeHtml(audit.package_type || '')}</span>
-                                <button class="btn-remove" onclick="event.stopPropagation(); deleteAudit(${audit.id})" style="font-size: 11px; padding: 4px 8px;">Delete</button>
-                            </div>
-                        </div>
-                    </div>
-                `).join('');
+                        `;
+                    });
+
+                    html += `</div>`;
+                }
+
+                container.innerHTML = html;
             } catch (err) {
                 container.innerHTML = '<em style="color: #dc3545;">Error loading history: ' + err.message + '</em>';
             }
@@ -1810,6 +1884,16 @@
                 const intake = data.intake_data || {};
 
                 currentAuditId = data.id;
+                reauditFromId = null;
+
+                // Show comparison panel if this audit has comparison data
+                if (fd.comparison_data) {
+                    comparisonData = fd.comparison_data;
+                    showComparisonPanel(comparisonData);
+                } else {
+                    comparisonData = null;
+                    hideComparisonPanel();
+                }
 
                 // Restore client info
                 const client = fd.client || {};
@@ -1886,6 +1970,9 @@
             }
 
             currentAuditId = null;
+            reauditFromId = null;
+            comparisonData = null;
+            hideComparisonPanel();
 
             // Clear client fields
             document.getElementById('client-name').value = '';
@@ -1965,6 +2052,157 @@
             } catch (err) {
                 alert('Delete failed: ' + err.message);
             }
+        }
+
+        // =====================================================================
+        // Re-Audit & Comparison Functions
+        // =====================================================================
+
+        async function startReaudit(auditId) {
+            // Load the old audit data
+            try {
+                const response = await fetch('/audits/' + auditId);
+                const data = await response.json();
+                if (data.error) {
+                    alert('Error loading audit: ' + data.error);
+                    return;
+                }
+
+                const fd = data.form_data;
+                const intake = data.intake_data || {};
+
+                // Set re-audit tracking — new audit will link back to this one
+                reauditFromId = auditId;
+                currentAuditId = null;  // Force save as NEW audit
+                comparisonData = null;
+                hideComparisonPanel();
+
+                // Restore client info
+                const client = fd.client || {};
+                document.getElementById('client-name').value = client.name || '';
+                document.getElementById('client-website').value = client.website || '';
+                document.getElementById('client-industry').value = client.industry || '';
+                document.getElementById('client-location').value = client.location || '';
+                document.getElementById('client-package').value = client.package || 'Basic ($500)';
+                document.getElementById('client-competitors').value = client.competitors || '';
+
+                // Set today's date for the new audit
+                const today = new Date();
+                const options = { year: 'numeric', month: 'long', day: 'numeric' };
+                document.getElementById('client-audit-date').value = today.toLocaleDateString('en-US', options);
+
+                // Restore intake fields
+                document.getElementById('intake-discovery').value = intake.discovery || '';
+                document.getElementById('intake-services').value = intake.services || '';
+                document.getElementById('intake-audience').value = intake.audience || '';
+
+                // Restore queries (reset scores — they'll be rescored)
+                queries = (fd.queries || []).map(q => ({
+                    query: q.query,
+                    type: q.type,
+                    score: 0,
+                    finding: ''
+                }));
+                renderQueries();
+
+                // Reset visibility and results
+                document.getElementById('visibility-level').value = 'Run audit to calculate';
+                findings = [];
+                recommendations = [];
+                competitors = [];
+                renderFindings();
+                renderRecommendations();
+                renderCompetitors();
+
+                // Switch to Queries tab
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab')[1].classList.add('active');
+                document.getElementById('tab-queries').classList.add('active');
+
+                showSaveIndicator('Ready to re-audit');
+            } catch (err) {
+                alert('Error loading audit for re-audit: ' + err.message);
+            }
+        }
+
+        function showComparisonPanel(data) {
+            const panel = document.getElementById('comparison-panel');
+            const summary = document.getElementById('comparison-summary');
+            const platforms = document.getElementById('comparison-platforms');
+            const queriesDiv = document.getElementById('comparison-queries');
+
+            // Overall change
+            const changeSign = data.percentage_change >= 0 ? '+' : '';
+            const changeColor = data.percentage_change >= 0 ? '#166534' : '#dc2626';
+            const arrow = data.percentage_change >= 0 ? '&#9650;' : '&#9660;';
+
+            summary.innerHTML = `
+                <div style="text-align: center; flex: 1; min-width: 120px;">
+                    <div style="font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Overall</div>
+                    <div style="font-size: 28px; font-weight: 800; color: ${changeColor};">
+                        ${arrow} ${changeSign}${data.percentage_change.toFixed(1)}%
+                    </div>
+                    <div style="font-size: 12px; color: #888;">${data.previous_percentage.toFixed(1)}% &rarr; ${data.current_percentage.toFixed(1)}%</div>
+                </div>
+                <div style="text-align: center; flex: 1; min-width: 100px;">
+                    <div style="font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Improved</div>
+                    <div style="font-size: 28px; font-weight: 800; color: #166534;">${data.queries_improved}</div>
+                    <div style="font-size: 12px; color: #888;">queries</div>
+                </div>
+                <div style="text-align: center; flex: 1; min-width: 100px;">
+                    <div style="font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Declined</div>
+                    <div style="font-size: 28px; font-weight: 800; color: ${data.queries_declined > 0 ? '#dc2626' : '#888'};">${data.queries_declined}</div>
+                    <div style="font-size: 12px; color: #888;">queries</div>
+                </div>
+                <div style="text-align: center; flex: 1; min-width: 100px;">
+                    <div style="font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Unchanged</div>
+                    <div style="font-size: 28px; font-weight: 800; color: #888;">${data.queries_unchanged}</div>
+                    <div style="font-size: 12px; color: #888;">queries</div>
+                </div>
+            `;
+
+            // Platform changes
+            const platformNames = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity' };
+            platforms.innerHTML = Object.entries(data.platform_changes).map(([key, p]) => {
+                const pSign = p.change >= 0 ? '+' : '';
+                const pColor = p.change > 0 ? '#166534' : p.change < 0 ? '#dc2626' : '#888';
+                return `
+                    <div style="text-align: center; background: white; padding: 10px; border-radius: 8px; border: 1px solid #e5e7eb;">
+                        <div style="font-size: 11px; font-weight: 600; color: #555;">${platformNames[key]}</div>
+                        <div style="font-size: 18px; font-weight: 700; color: ${pColor};">${pSign}${p.change.toFixed(1)}%</div>
+                        <div style="font-size: 10px; color: #999;">${p.previous.toFixed(0)}% &rarr; ${p.current.toFixed(0)}%</div>
+                    </div>
+                `;
+            }).join('');
+
+            // Query-level changes (top movers)
+            if (data.query_changes && data.query_changes.length > 0) {
+                const movers = data.query_changes.filter(q => q.change !== 0).slice(0, 5);
+                if (movers.length > 0) {
+                    queriesDiv.innerHTML = `
+                        <div style="font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px;">Top Changes</div>
+                        ${movers.map(q => {
+                            const qSign = q.change >= 0 ? '+' : '';
+                            const qColor = q.change > 0 ? '#166534' : '#dc2626';
+                            const qBg = q.change > 0 ? '#f0fdf4' : '#fef2f2';
+                            return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: ${qBg}; border-radius: 6px; margin-bottom: 4px; font-size: 12px;">
+                                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(q.query)}</span>
+                                <span style="font-weight: 700; color: ${qColor}; margin-left: 10px; white-space: nowrap;">${qSign}${q.change} pts (${q.previous_score}&rarr;${q.current_score})</span>
+                            </div>`;
+                        }).join('')}
+                    `;
+                } else {
+                    queriesDiv.innerHTML = '';
+                }
+            }
+
+            panel.style.display = 'block';
+        }
+
+        function hideComparisonPanel() {
+            document.getElementById('comparison-panel').style.display = 'none';
+            comparisonData = null;
         }
     </script>
 </body>

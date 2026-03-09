@@ -29,17 +29,25 @@ def init_db():
             package_type TEXT,
             form_data TEXT NOT NULL,
             intake_data TEXT,
+            previous_audit_id INTEGER,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         )
     ''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_audits_client_name ON audits(client_name)')
     db.execute('CREATE INDEX IF NOT EXISTS idx_audits_created_at ON audits(created_at)')
+
+    # Migration: add previous_audit_id column to existing databases
+    try:
+        db.execute('ALTER TABLE audits ADD COLUMN previous_audit_id INTEGER')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     db.commit()
     db.close()
 
 
-def save_audit(form_data, intake_data, audit_id=None):
+def save_audit(form_data, intake_data, audit_id=None, previous_audit_id=None):
     """Save or update an audit. Returns the audit_id."""
     client = form_data.get('client', {})
     client_name = client.get('name', '').strip()
@@ -67,7 +75,8 @@ def save_audit(form_data, intake_data, audit_id=None):
                 UPDATE audits
                 SET client_name = ?, client_website = ?, industry = ?,
                     audit_date = ?, visibility_percentage = ?, package_type = ?,
-                    form_data = ?, intake_data = ?, updated_at = datetime('now')
+                    form_data = ?, intake_data = ?, previous_audit_id = ?,
+                    updated_at = datetime('now')
                 WHERE id = ?
             ''', (
                 client_name,
@@ -78,14 +87,16 @@ def save_audit(form_data, intake_data, audit_id=None):
                 client.get('package', ''),
                 json.dumps(form_data),
                 json.dumps(intake_data),
+                previous_audit_id,
                 audit_id
             ))
         else:
             db.execute('''
                 INSERT INTO audits
                     (client_name, client_website, industry, audit_date,
-                     visibility_percentage, package_type, form_data, intake_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     visibility_percentage, package_type, form_data, intake_data,
+                     previous_audit_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 client_name,
                 client.get('website', ''),
@@ -94,7 +105,8 @@ def save_audit(form_data, intake_data, audit_id=None):
                 visibility_pct,
                 client.get('package', ''),
                 json.dumps(form_data),
-                json.dumps(intake_data)
+                json.dumps(intake_data),
+                previous_audit_id
             ))
             audit_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
 
@@ -110,7 +122,8 @@ def list_audits():
     try:
         rows = db.execute('''
             SELECT id, client_name, client_website, industry, audit_date,
-                   visibility_percentage, package_type, created_at, updated_at
+                   visibility_percentage, package_type, previous_audit_id,
+                   created_at, updated_at
             FROM audits
             ORDER BY updated_at DESC
         ''').fetchall()
@@ -123,6 +136,7 @@ def list_audits():
             "audit_date": row["audit_date"],
             "visibility_percentage": row["visibility_percentage"],
             "package_type": row["package_type"],
+            "previous_audit_id": row["previous_audit_id"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"]
         } for row in rows]
@@ -141,11 +155,87 @@ def get_audit(audit_id):
             "id": row["id"],
             "form_data": json.loads(row["form_data"]),
             "intake_data": json.loads(row["intake_data"]) if row["intake_data"] else {},
+            "previous_audit_id": row["previous_audit_id"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"]
         }
     finally:
         db.close()
+
+
+def get_comparison(current_id, previous_id):
+    """Compare two audits and return the delta."""
+    current = get_audit(current_id)
+    previous = get_audit(previous_id)
+
+    if not current or not previous:
+        return None
+
+    cur_fd = current["form_data"]
+    prev_fd = previous["form_data"]
+
+    # Overall percentage
+    cur_queries = cur_fd.get("queries", [])
+    prev_queries = prev_fd.get("queries", [])
+    cur_total = sum(q.get("score", 0) for q in cur_queries)
+    prev_total = sum(q.get("score", 0) for q in prev_queries)
+    cur_max = len(cur_queries) * 12
+    prev_max = len(prev_queries) * 12
+    cur_pct = (cur_total / cur_max * 100) if cur_max > 0 else 0
+    prev_pct = (prev_total / prev_max * 100) if prev_max > 0 else 0
+
+    # Platform comparison
+    cur_platforms = cur_fd.get("platforms", {})
+    prev_platforms = prev_fd.get("platforms", {})
+    platform_changes = {}
+    for p in ["chatgpt", "claude", "gemini", "perplexity"]:
+        cur_p = cur_platforms.get(p, {})
+        prev_p = prev_platforms.get(p, {})
+        cur_score = cur_p.get("score", 0)
+        prev_score = prev_p.get("score", 0)
+        cur_p_max = cur_p.get("max", 30)
+        prev_p_max = prev_p.get("max", 30)
+        cur_p_pct = (cur_score / cur_p_max * 100) if cur_p_max > 0 else 0
+        prev_p_pct = (prev_score / prev_p_max * 100) if prev_p_max > 0 else 0
+        platform_changes[p] = {
+            "previous": round(prev_p_pct, 1),
+            "current": round(cur_p_pct, 1),
+            "change": round(cur_p_pct - prev_p_pct, 1)
+        }
+
+    # Query-level comparison (match by query text)
+    prev_by_query = {q.get("query", ""): q for q in prev_queries}
+    query_changes = []
+    for q in cur_queries:
+        query_text = q.get("query", "")
+        prev_q = prev_by_query.get(query_text)
+        if prev_q:
+            change = q.get("score", 0) - prev_q.get("score", 0)
+            query_changes.append({
+                "query": query_text,
+                "type": q.get("type", ""),
+                "previous_score": prev_q.get("score", 0),
+                "current_score": q.get("score", 0),
+                "change": change
+            })
+
+    # Sort: biggest improvements first, then biggest declines
+    query_changes.sort(key=lambda x: x["change"], reverse=True)
+
+    return {
+        "previous_audit_date": prev_fd.get("client", {}).get("audit_date", ""),
+        "current_audit_date": cur_fd.get("client", {}).get("audit_date", ""),
+        "previous_percentage": round(prev_pct, 1),
+        "current_percentage": round(cur_pct, 1),
+        "percentage_change": round(cur_pct - prev_pct, 1),
+        "previous_total": prev_total,
+        "current_total": cur_total,
+        "platform_changes": platform_changes,
+        "query_changes": query_changes,
+        "queries_improved": len([q for q in query_changes if q["change"] > 0]),
+        "queries_declined": len([q for q in query_changes if q["change"] < 0]),
+        "queries_unchanged": len([q for q in query_changes if q["change"] == 0]),
+    }
 
 
 def delete_audit(audit_id):

@@ -170,6 +170,93 @@ def generate_report_html(data):
 
     client = data.get('client', {})
 
+    # Build comparison section if previous audit data exists
+    comparison = data.get('comparison_data')
+    comparison_html = ""
+    if comparison:
+        pct_change = comparison.get('percentage_change', 0)
+        prev_pct = comparison.get('previous_percentage', 0)
+        cur_pct = comparison.get('current_percentage', 0)
+        prev_date = comparison.get('previous_audit_date', 'Previous')
+        change_sign = '+' if pct_change >= 0 else ''
+        change_color = '#1E8449' if pct_change >= 0 else '#922B21'
+        arrow = '&#9650;' if pct_change >= 0 else '&#9660;'
+
+        # Platform change cards
+        platform_names_cmp = {
+            'chatgpt': 'ChatGPT', 'claude': 'Claude',
+            'gemini': 'Gemini', 'perplexity': 'Perplexity'
+        }
+        platform_changes_html = ""
+        for p_key, p_data in comparison.get('platform_changes', {}).items():
+            p_change = p_data.get('change', 0)
+            p_sign = '+' if p_change >= 0 else ''
+            p_color = '#1E8449' if p_change > 0 else '#922B21' if p_change < 0 else '#888'
+            platform_changes_html += f"""
+                <div style="text-align: center; background: white; padding: 12px; border-radius: 8px; border: 1px solid #eee;">
+                    <div style="font-size: 9pt; font-weight: 600; color: #555;">{platform_names_cmp.get(p_key, p_key)}</div>
+                    <div style="font-size: 16pt; font-weight: 700; color: {p_color};">{p_sign}{p_change:.1f}%</div>
+                    <div style="font-size: 8pt; color: #999;">{p_data.get('previous', 0):.0f}% &rarr; {p_data.get('current', 0):.0f}%</div>
+                </div>
+            """
+
+        # Top query changes
+        query_changes = comparison.get('query_changes', [])
+        improved = [q for q in query_changes if q.get('change', 0) > 0][:3]
+        declined = [q for q in query_changes if q.get('change', 0) < 0][:2]
+
+        query_rows_cmp = ""
+        for q in improved:
+            query_rows_cmp += f"""
+                <tr style="background: #f0fdf4;">
+                    <td>{q.get('query', '')}</td>
+                    <td style="text-align: center; color: #1E8449; font-weight: 600;">+{q['change']} pts</td>
+                    <td style="text-align: center; color: #888;">{q.get('previous_score', 0)} &rarr; {q.get('current_score', 0)}</td>
+                </tr>
+            """
+        for q in declined:
+            query_rows_cmp += f"""
+                <tr style="background: #fef2f2;">
+                    <td>{q.get('query', '')}</td>
+                    <td style="text-align: center; color: #922B21; font-weight: 600;">{q['change']} pts</td>
+                    <td style="text-align: center; color: #888;">{q.get('previous_score', 0)} &rarr; {q.get('current_score', 0)}</td>
+                </tr>
+            """
+
+        queries_improved = comparison.get('queries_improved', 0)
+        queries_declined = comparison.get('queries_declined', 0)
+        queries_unchanged = comparison.get('queries_unchanged', 0)
+
+        # Build query table separately (Python 3.9 can't have backslashes in f-strings)
+        query_table_cmp = ""
+        if query_rows_cmp:
+            query_table_cmp = (
+                "<table style='font-size: 9pt; margin: 0;'><thead><tr>"
+                "<th>Query</th><th style='width: 80px;'>Change</th>"
+                "<th style='width: 80px;'>Score</th></tr></thead><tbody>"
+                + query_rows_cmp +
+                "</tbody></table>"
+            )
+
+        comparison_html = f"""
+    <div style="background: linear-gradient(135deg, #f0fdf4, #ecfdf5); border: 1px solid #86efac; border-radius: 12px; padding: 25px 30px; margin: 30px 0; page-break-inside: avoid;">
+        <h3 style="color: #166534; margin: 0 0 5px 0; font-size: 14pt;">Progress Since Last Audit</h3>
+        <p style="font-size: 9pt; color: #666; margin: 0 0 20px 0;">Compared to audit from {prev_date}</p>
+
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="font-size: 36pt; font-weight: 800; color: {change_color};">{arrow} {change_sign}{pct_change:.1f}%</div>
+            <div style="font-size: 11pt; color: #555;">{prev_pct:.1f}% &rarr; {cur_pct:.1f}% overall visibility</div>
+            <div style="font-size: 10pt; color: #888; margin-top: 8px;">{queries_improved} queries improved &middot; {queries_declined} declined &middot; {queries_unchanged} unchanged</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+            {platform_changes_html}
+        </div>
+
+        {query_table_cmp}
+    </div>
+        """
+
     html = f"""
 <!DOCTYPE html>
 <html>
@@ -765,6 +852,8 @@ def generate_report_html(data):
             {findings_html}
         </ul>
     </div>
+
+    {comparison_html}
 
     <div class="page-break"></div>
 
