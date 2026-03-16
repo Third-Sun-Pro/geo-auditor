@@ -60,9 +60,9 @@ def test_score_capped_at_3():
 
 
 def test_partial_name_match():
-    """Multi-word name with 2+ words found should score 1."""
+    """Multi-word name with 2+ capitalized words mid-sentence should score 1."""
     result = analyze_response(
-        "The neighborhood house organization provides great community services.",
+        "We recommend the Neighborhood House for great community services.",
         "Neighborhood House Association",
         "https://nhautah.org"
     )

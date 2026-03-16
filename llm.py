@@ -13,9 +13,10 @@ from config import (
 # Generic business suffixes — not distinctive enough for partial name matching
 GENERIC_SUFFIXES = {
     'inc', 'llc', 'corp', 'corporation', 'company', 'co', 'ltd',
-    'associates', 'group', 'services', 'solutions', 'consulting',
+    'associates', 'association', 'group', 'services', 'solutions', 'consulting',
     'partners', 'agency', 'enterprises', 'firm', 'professionals',
     'advisors', 'specialists', 'international', 'national', 'global',
+    'foundation', 'institute', 'center', 'centre', 'organization', 'society',
 }
 
 
