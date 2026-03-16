@@ -3,7 +3,7 @@
 from flask import Blueprint, request, jsonify
 
 from config import openai_client, anthropic_client, gemini_model, perplexity_client, any_api_configured
-from services import run_full_audit, run_competitor_audit, generate_faqs
+from services import run_full_audit, run_competitor_audit, generate_faqs, revise_faqs
 from scraper import scrape_website, analyze_website_with_ai, generate_from_intake
 
 audit_bp = Blueprint('audit', __name__)
@@ -126,6 +126,38 @@ def generate_faqs_route():
         recommendations=data.get('recommendations', []),
         competitors=data.get('competitors', []),
         num_faqs=data.get('num_faqs', 8),
+    )
+
+    if 'error' in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@audit_bp.route('/revise-faqs', methods=['POST'])
+def revise_faqs_route():
+    """Revise previously generated FAQs based on user feedback."""
+    data = request.json
+
+    client_name = data.get('client_name', '')
+    if not client_name:
+        return jsonify({"error": "Client name is required"}), 400
+
+    faqs = data.get('faqs', [])
+    feedback = data.get('feedback', '').strip()
+    if not faqs or not feedback:
+        return jsonify({"error": "FAQs and feedback are required"}), 400
+
+    if not anthropic_client:
+        return jsonify({"error": "Anthropic API key not configured"}), 400
+
+    result = revise_faqs(
+        faqs=faqs,
+        feedback=feedback,
+        client_name=client_name,
+        client_website=data.get('client_website', ''),
+        industry=data.get('industry', ''),
+        location=data.get('location', ''),
     )
 
     if 'error' in result:

@@ -13,7 +13,7 @@ load_dotenv()
 # Model constants (change these when upgrading models)
 # ---------------------------------------------------------------------------
 CHATGPT_MODEL = "gpt-4o-mini"
-CLAUDE_MODEL = "claude-3-haiku-20240307"
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 GEMINI_MODEL = "gemini-2.0-flash"
 PERPLEXITY_MODEL = "sonar"
 

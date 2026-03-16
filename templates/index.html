@@ -703,6 +703,21 @@
                         <div class="section-header">JSON-LD Schema (paste into Google Structured Data)</div>
                         <textarea id="faq-schema-output" readonly style="width: 100%; min-height: 150px; font-family: 'Courier New', monospace; font-size: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; background: #f8f8f8; resize: vertical;"></textarea>
                     </div>
+
+                    <!-- Revision Feedback -->
+                    <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #eee;">
+                        <div class="section-header">Revise FAQs</div>
+                        <p style="color: #666; font-size: 13px; margin-bottom: 10px;">
+                            Want to adjust these? Describe what to change and Claude will revise them.
+                        </p>
+                        <textarea id="faq-feedback" placeholder="e.g. Include Salt Lake City and the West coast more, mention their catering services, make question 3 more specific..." style="width: 100%; min-height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; resize: vertical; font-family: inherit;"></textarea>
+                        <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                            <button class="btn-download" id="btn-revise-faqs" onclick="reviseFAQs()">
+                                Revise FAQs
+                            </button>
+                            <span id="faq-revise-status" style="font-size: 13px;"></span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1804,7 +1819,7 @@
 
                 generatedFAQs = data;
                 status.textContent = `Generated ${data.count} FAQs`;
-                status.style.color = '#22c55e';
+                status.style.color = '#2C3E50';
 
                 // Show results
                 document.getElementById('faq-results').style.display = 'block';
@@ -1832,6 +1847,92 @@
                 status.textContent = 'Error generating FAQs. Check console.';
                 status.style.color = '#dc3545';
                 console.error('FAQ generation error:', err);
+            });
+        }
+
+        function reviseFAQs() {
+            const btn = document.getElementById('btn-revise-faqs');
+            const status = document.getElementById('faq-revise-status');
+            const feedback = document.getElementById('faq-feedback').value.trim();
+
+            if (!feedback) {
+                status.textContent = 'Enter revision instructions first.';
+                status.style.color = '#dc3545';
+                return;
+            }
+
+            if (!generatedFAQs || !generatedFAQs.faqs) {
+                status.textContent = 'Generate FAQs first before revising.';
+                status.style.color = '#dc3545';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Revising...';
+            status.textContent = 'Claude is revising your FAQs...';
+            status.style.color = '#666';
+
+            const payload = {
+                client_name: document.getElementById('client-name').value.trim(),
+                client_website: document.getElementById('client-website').value.trim(),
+                industry: document.getElementById('client-industry').value.trim(),
+                location: document.getElementById('client-location').value.trim(),
+                faqs: generatedFAQs.faqs,
+                feedback: feedback,
+            };
+            console.log('[FAQ Revise] Sending request:', payload);
+
+            fetch('/revise-faqs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(response => {
+                console.log('[FAQ Revise] Response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                btn.disabled = false;
+                btn.textContent = 'Revise FAQs';
+
+                if (data.error) {
+                    status.textContent = 'Error: ' + data.error;
+                    status.style.color = '#dc3545';
+                    return;
+                }
+
+                generatedFAQs = data;
+                status.textContent = 'FAQs revised successfully!';
+                status.style.color = '#2C3E50';
+                document.getElementById('faq-feedback').value = '';
+
+                // Update preview
+                const preview = document.getElementById('faq-preview');
+                preview.innerHTML = data.faqs.map((faq, i) => `
+                    <div style="margin-bottom: 16px; ${i > 0 ? 'border-top: 1px solid #eee; padding-top: 16px;' : ''}">
+                        <div style="font-weight: 600; font-size: 14px; color: #2C3E50; margin-bottom: 6px;">
+                            Q: ${escapeHtml(faq.question)}
+                        </div>
+                        <div style="font-size: 13px; color: #555; line-height: 1.5;">
+                            ${escapeHtml(faq.answer)}
+                        </div>
+                    </div>
+                `).join('');
+
+                // Update textareas
+                document.getElementById('faq-html-output').value = data.html;
+                document.getElementById('faq-schema-output').value = data.schema;
+
+                // Update count in main status
+                document.getElementById('faq-status').textContent = `Revised — ${data.count} FAQs`;
+                document.getElementById('faq-status').style.color = '#2C3E50';
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.textContent = 'Revise FAQs';
+                status.textContent = 'Error revising FAQs. Check console.';
+                status.style.color = '#dc3545';
+                console.error('FAQ revision error:', err);
             });
         }
 

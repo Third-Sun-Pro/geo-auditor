@@ -866,15 +866,108 @@ Respond ONLY with a JSON array. Each item: {{"question": "...", "answer": "..."}
     }
 
 
+def revise_faqs(faqs, feedback, client_name, client_website='', industry='',
+                location=''):
+    """Revise existing FAQs based on user feedback using Claude.
+
+    Takes the current FAQs and revision instructions, returns updated FAQs.
+    """
+    if not anthropic_client:
+        return {"error": "Anthropic API key not configured"}
+
+    if not faqs or not feedback:
+        return {"error": "FAQs and feedback are required"}
+
+    current_faqs = json.dumps(faqs, indent=2)
+
+    prompt = f"""You are a GEO (Generative Engine Optimization) specialist revising FAQ content
+for a client's website. You previously generated these FAQs and the user wants changes.
+
+CLIENT: {client_name}
+WEBSITE: {client_website or 'N/A'}
+INDUSTRY: {industry or 'N/A'}
+LOCATION: {location or 'N/A'}
+
+CURRENT FAQs:
+{current_faqs}
+
+USER'S REVISION INSTRUCTIONS:
+{feedback}
+
+Apply the user's requested changes to the FAQs. Keep the same number of FAQs unless
+the user specifically asks for more or fewer. Maintain the same quality standards:
+- Entity-rich answers with business name, location, specific services
+- Natural question format
+- 2-4 sentence comprehensive answers
+- Mix of question types
+
+Respond ONLY with a JSON array. Each item: {{"question": "...", "answer": "..."}}"""
+
+    print(f"[FAQ] Revising FAQs for {client_name} via Claude...")
+
+    try:
+        response = anthropic_client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=1500,
+            temperature=0.7,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=30.0,
+        )
+    except Exception as e:
+        print(f"[FAQ] Revision API error: {e}")
+        return {"error": f"API request failed: {str(e)}"}
+
+    result_text = response.content[0].text.strip()
+    print(f"[FAQ] Got revision response ({len(result_text)} chars)")
+
+    # Strip markdown code fences if present
+    if result_text.startswith('```'):
+        result_text = result_text.split('```')[1]
+        if result_text.startswith('json'):
+            result_text = result_text[4:]
+    result_text = result_text.strip()
+
+    revised = json.loads(result_text)
+
+    if not isinstance(revised, list) or len(revised) == 0:
+        return {"error": "AI returned empty or invalid FAQ data"}
+
+    valid_faqs = []
+    for faq in revised:
+        if isinstance(faq, dict) and 'question' in faq and 'answer' in faq:
+            valid_faqs.append({
+                "question": faq["question"].strip(),
+                "answer": faq["answer"].strip(),
+            })
+
+    if not valid_faqs:
+        return {"error": "AI response contained no valid Q&A pairs"}
+
+    html = _faqs_to_html(valid_faqs, client_name)
+    schema = _faqs_to_schema(valid_faqs)
+
+    print(f"[FAQ] Revised {len(valid_faqs)} FAQs for {client_name}")
+
+    return {
+        "success": True,
+        "faqs": valid_faqs,
+        "html": html,
+        "schema": schema,
+        "count": len(valid_faqs),
+    }
+
+
 def _faqs_to_html(faqs, client_name):
-    """Convert FAQ list to ready-to-paste HTML for a Joomla article."""
-    lines = [f'<h2>Frequently Asked Questions About {client_name}</h2>', '']
+    """Convert FAQ list to Joomla accordion shortcode format."""
+    lines = [f'<h2>Frequently Asked Questions About {client_name}</h2>', '',
+             '{accordions}']
     for faq in faqs:
-        q = faq['question'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        q = faq['question'].replace('"', '&quot;')
         a = faq['answer'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        lines.append(f'<h3>{q}</h3>')
+        lines.append(f'{{accordion title="{q}"}}')
         lines.append(f'<p>{a}</p>')
-        lines.append('')
+        lines.append('{/accordion}')
+    lines.append('{/accordions}')
     return '\n'.join(lines)
 
 

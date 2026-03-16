@@ -24,4 +24,4 @@ if __name__ == '__main__':
     print("GEO Audit Report Generator")
     print("Open http://127.0.0.1:5001 in your browser")
     print("=" * 50)
-    app.run(debug=True, host='127.0.0.1', port=5001)
+    app.run(debug=True, host='127.0.0.1', port=5001, threaded=True)

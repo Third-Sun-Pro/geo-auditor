@@ -199,10 +199,18 @@ def test_faqs_to_html_contains_heading():
     assert "<h2>Frequently Asked Questions About Acme Corp</h2>" in html
 
 
-def test_faqs_to_html_contains_questions():
+def test_faqs_to_html_uses_accordion_format():
     html = _faqs_to_html(SAMPLE_FAQS, "Acme Corp")
-    assert "<h3>What does Acme Corp do?</h3>" in html
-    assert "<h3>Where is Acme Corp located?</h3>" in html
+    assert "{accordions}" in html
+    assert "{/accordions}" in html
+    assert '{accordion title="What does Acme Corp do?"}' in html
+    assert '{accordion title="Where is Acme Corp located?"}' in html
+    assert "{/accordion}" in html
+
+
+def test_faqs_to_html_all_accordions_closed():
+    html = _faqs_to_html(SAMPLE_FAQS, "Acme Corp")
+    assert 'open="true"' not in html
 
 
 def test_faqs_to_html_contains_answers():
@@ -211,10 +219,11 @@ def test_faqs_to_html_contains_answers():
 
 
 def test_faqs_to_html_escapes_html():
-    faqs = [{"question": "Is <script> safe?", "answer": "Yes & no."}]
+    faqs = [{"question": 'Is "injection" safe?', "answer": "Yes & no."}]
     html = _faqs_to_html(faqs, "Test")
-    assert "<script>" not in html
-    assert "&lt;script&gt;" in html
+    # Question in title attribute: quotes escaped
+    assert '&quot;injection&quot;' in html
+    # Answer in paragraph: ampersand escaped
     assert "&amp;" in html
 
 
