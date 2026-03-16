@@ -489,6 +489,7 @@
                 <button class="tab" onclick="showTab('platforms')">Platforms</button>
                 <button class="tab" onclick="showTab('recommendations')">Recommendations</button>
                 <button class="tab" onclick="showTab('competitors')">Competitors</button>
+                <button class="tab" onclick="showTab('faqs')">FAQs</button>
                 <button class="tab" onclick="showTab('history')">History</button>
             </div>
 
@@ -651,6 +652,60 @@
                 <div id="competitor-check-status" style="margin-top: 10px; display: none;"></div>
             </div>
 
+            <!-- FAQs Tab -->
+            <div id="tab-faqs" class="tab-content">
+                <div class="section-header" style="margin-top: 0;">FAQ Generator</div>
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                    Generate website-ready FAQs based on your audit results. The FAQs target your visibility gaps
+                    so AI engines can find and cite your client for the queries they're currently missing.
+                </p>
+                <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
+                    <label style="font-size: 13px; font-weight: 500;">Number of FAQs:</label>
+                    <select id="faq-count" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px;">
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8" selected>8</option>
+                        <option value="9">9</option>
+                        <option value="10">10</option>
+                    </select>
+                    <button id="btn-generate-faqs" class="btn-run-audit" onclick="generateFAQs()" style="margin-right: 0;">
+                        Generate FAQs
+                    </button>
+                    <span id="faq-status" style="font-size: 13px; color: #666;"></span>
+                </div>
+
+                <div id="faq-results" style="display: none;">
+                    <!-- FAQ Preview -->
+                    <div style="margin-bottom: 20px;">
+                        <div class="section-header">Preview</div>
+                        <div id="faq-preview" style="background: #fafafa; border: 1px solid #e5e5e5; border-radius: 8px; padding: 20px; max-height: 400px; overflow-y: auto;"></div>
+                    </div>
+
+                    <!-- Copy HTML Button -->
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <button class="btn-download" onclick="copyFAQHTML()" id="btn-copy-html">
+                            Copy HTML
+                        </button>
+                        <button class="btn-download" onclick="copyFAQSchema()" id="btn-copy-schema" style="background: #6c757d;">
+                            Copy Schema Markup
+                        </button>
+                    </div>
+
+                    <!-- Raw HTML -->
+                    <div style="margin-bottom: 20px;">
+                        <div class="section-header">HTML (paste into Joomla article)</div>
+                        <textarea id="faq-html-output" readonly style="width: 100%; min-height: 150px; font-family: 'Courier New', monospace; font-size: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; background: #f8f8f8; resize: vertical;"></textarea>
+                    </div>
+
+                    <!-- Schema Markup -->
+                    <div>
+                        <div class="section-header">JSON-LD Schema (paste into Google Structured Data)</div>
+                        <textarea id="faq-schema-output" readonly style="width: 100%; min-height: 150px; font-family: 'Courier New', monospace; font-size: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; background: #f8f8f8; resize: vertical;"></textarea>
+                    </div>
+                </div>
+            </div>
+
             <!-- History Tab -->
             <div id="tab-history" class="tab-content">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -704,6 +759,9 @@
             "Local Visibility Gap: Missing from 'best' recommendations",
             "Content Opportunity: Unique differentiators not surfacing",
         ];
+
+        let auditPercentage = 0;
+        let generatedFAQs = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -1107,6 +1165,7 @@
 
                 progressFill.style.width = '100%';
                 progressText.textContent = `Audit complete! Score: ${data.total_score}/${data.max_score} (${data.percentage}%)`;
+                auditPercentage = data.percentage || 0;
 
                 // Update queries with results
                 if (data.results) {
@@ -1640,6 +1699,7 @@
                     competitors: document.getElementById('client-competitors').value,
                 },
                 visibility_level: document.getElementById('visibility-level').value,
+                visibility_percentage: auditPercentage,
                 key_findings: findings,
                 queries: queries,
                 platforms: {
@@ -1690,6 +1750,107 @@
                 frame.srcdoc = html;
             })
             .catch(err => console.error('Preview error:', err));
+        }
+
+        // =====================================================================
+        // FAQ Generator Functions
+        // =====================================================================
+
+        function generateFAQs() {
+            const btn = document.getElementById('btn-generate-faqs');
+            const status = document.getElementById('faq-status');
+            const numFaqs = parseInt(document.getElementById('faq-count').value) || 8;
+
+            const clientName = document.getElementById('client-name').value.trim();
+            if (!clientName) {
+                status.textContent = 'Enter a client name first.';
+                status.style.color = '#dc3545';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            status.textContent = 'Asking Claude to write FAQs based on your audit data...';
+            status.style.color = '#666';
+
+            const formData = getFormData();
+
+            fetch('/generate-faqs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    client_name: formData.client.name,
+                    client_website: formData.client.website,
+                    industry: formData.client.industry,
+                    location: formData.client.location,
+                    queries: formData.queries || [],
+                    visibility_percentage: formData.visibility_percentage || 0,
+                    key_findings: formData.key_findings || [],
+                    recommendations: formData.recommendations || [],
+                    competitors: formData.competitors || [],
+                    num_faqs: numFaqs,
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                btn.disabled = false;
+                btn.textContent = 'Generate FAQs';
+
+                if (data.error) {
+                    status.textContent = 'Error: ' + data.error;
+                    status.style.color = '#dc3545';
+                    return;
+                }
+
+                generatedFAQs = data;
+                status.textContent = `Generated ${data.count} FAQs`;
+                status.style.color = '#22c55e';
+
+                // Show results
+                document.getElementById('faq-results').style.display = 'block';
+
+                // Render preview
+                const preview = document.getElementById('faq-preview');
+                preview.innerHTML = data.faqs.map((faq, i) => `
+                    <div style="margin-bottom: 16px; ${i > 0 ? 'border-top: 1px solid #eee; padding-top: 16px;' : ''}">
+                        <div style="font-weight: 600; font-size: 14px; color: #2C3E50; margin-bottom: 6px;">
+                            Q: ${escapeHtml(faq.question)}
+                        </div>
+                        <div style="font-size: 13px; color: #555; line-height: 1.5;">
+                            ${escapeHtml(faq.answer)}
+                        </div>
+                    </div>
+                `).join('');
+
+                // Fill textareas
+                document.getElementById('faq-html-output').value = data.html;
+                document.getElementById('faq-schema-output').value = data.schema;
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.textContent = 'Generate FAQs';
+                status.textContent = 'Error generating FAQs. Check console.';
+                status.style.color = '#dc3545';
+                console.error('FAQ generation error:', err);
+            });
+        }
+
+        function copyFAQHTML() {
+            const textarea = document.getElementById('faq-html-output');
+            navigator.clipboard.writeText(textarea.value).then(() => {
+                const btn = document.getElementById('btn-copy-html');
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = 'Copy HTML'; }, 2000);
+            });
+        }
+
+        function copyFAQSchema() {
+            const textarea = document.getElementById('faq-schema-output');
+            navigator.clipboard.writeText(textarea.value).then(() => {
+                const btn = document.getElementById('btn-copy-schema');
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = 'Copy Schema Markup'; }, 2000);
+            });
         }
 
         // Download PDF
@@ -1913,6 +2074,7 @@
 
                 // Restore visibility level
                 document.getElementById('visibility-level').value = fd.visibility_level || '';
+                auditPercentage = fd.visibility_percentage || 0;
 
                 // Restore key findings
                 findings = fd.key_findings || [];
@@ -1998,6 +2160,10 @@
             document.getElementById('visibility-level').value = 'Run audit to calculate';
 
             // Reset data arrays to defaults
+            auditPercentage = 0;
+            generatedFAQs = null;
+            document.getElementById('faq-results').style.display = 'none';
+            document.getElementById('faq-status').textContent = '';
             queries = [];
             recommendations = [
                 { title: "Create Content Hub", priority: "high", issue: "Unique differentiator not visible to AI engines", actions: ["Create dedicated page", "Add FAQ format for AI extraction"] },

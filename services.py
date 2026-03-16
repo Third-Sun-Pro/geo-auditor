@@ -1,10 +1,11 @@
-"""Business logic — audit orchestration, competitor analysis, recommendations."""
+"""Business logic — audit orchestration, competitor analysis, recommendations, FAQ generation."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import (
     openai_client, anthropic_client, gemini_model, perplexity_client,
-    CHATGPT_MODEL,
+    CHATGPT_MODEL, CLAUDE_MODEL,
 )
 from llm import query_platform
 
@@ -714,3 +715,184 @@ def _template_recommendations(client_name, results, brand_queries, local_queries
         })
 
     return recommendations
+
+
+# ---------------------------------------------------------------------------
+# FAQ generation
+# ---------------------------------------------------------------------------
+
+def generate_faqs(client_name, client_website, industry, location, queries,
+                  visibility_percentage, key_findings, recommendations,
+                  competitors=None, num_faqs=8):
+    """Generate website-ready FAQs using Claude, informed by audit results.
+
+    Returns a dict with 'faqs' (list of Q&A dicts), 'html' (ready-to-paste),
+    and 'schema' (JSON-LD FAQ schema markup).
+    """
+    if not anthropic_client:
+        return {"error": "Anthropic API key not configured"}
+
+    # Build context from audit data
+    weak_queries = [q for q in queries if q.get('score', 0) < 6]
+    strong_queries = [q for q in queries if q.get('score', 0) >= 6]
+
+    weak_summary = "\n".join(
+        f'  - "{q["query"]}" (score {q["score"]}/12, type: {q.get("type", "Unknown")})'
+        for q in weak_queries[:8]
+    ) or "  None — all queries performed well."
+
+    strong_summary = "\n".join(
+        f'  - "{q["query"]}" (score {q["score"]}/12)'
+        for q in strong_queries[:5]
+    ) or "  None."
+
+    findings_text = "\n".join(f"  - {f}" for f in (key_findings or [])) or "  None."
+
+    rec_text = "\n".join(
+        f'  - {r.get("title", "")}: {r.get("issue", "")}'
+        for r in (recommendations or [])[:5]
+    ) or "  None."
+
+    competitor_text = ""
+    if competitors:
+        competitor_text = "\nCOMPETITORS:\n" + "\n".join(
+            f'  - {c.get("name", "")} ({c.get("visibility_display", "?")} visibility)'
+            f' — Strength: {c.get("strengths", "N/A")}'
+            for c in competitors[:5]
+        )
+
+    num_faqs = max(5, min(num_faqs, 10))
+
+    prompt = f"""You are a GEO (Generative Engine Optimization) specialist creating FAQ content
+for a client's website. The goal is to create FAQs that AI search engines will pick up and cite
+when users ask questions related to this business.
+
+CLIENT: {client_name}
+WEBSITE: {client_website or 'N/A'}
+INDUSTRY: {industry or 'N/A'}
+LOCATION: {location or 'N/A'}
+OVERALL VISIBILITY: {visibility_percentage:.1f}%
+
+QUERIES WHERE THE CLIENT IS NOT BEING FOUND (these are the gaps to fill):
+{weak_summary}
+
+QUERIES WHERE THE CLIENT IS VISIBLE (leverage these):
+{strong_summary}
+
+KEY FINDINGS FROM AUDIT:
+{findings_text}
+
+TOP RECOMMENDATIONS:
+{rec_text}
+{competitor_text}
+
+GENERATE EXACTLY {num_faqs} FAQs following these rules:
+
+1. PRIORITIZE VISIBILITY GAPS — The FAQs should directly answer the types of questions
+   where the client is NOT being found. If they're missing from "best {industry} in {location}"
+   queries, create FAQs that establish them as a top choice in that area.
+
+2. ENTITY-RICH ANSWERS — Include the business name, location, specific services, and
+   concrete details in every answer. AI engines cite content that is factually dense.
+   Mention "{client_name}" by name in most answers.
+
+3. NATURAL QUESTION FORMAT — Write questions the way a real person would ask them.
+   Good: "What makes {client_name} different from other {industry} providers in {location}?"
+   Bad: "Why choose us?"
+
+4. COMPREHENSIVE ANSWERS — Each answer should be 2-4 sentences. Include specific details,
+   not vague marketing language. Mention services, credentials, experience, location details.
+
+5. DIFFERENTIATION — If competitors exist, subtly address what makes this client unique
+   without naming competitors.
+
+6. MIX OF QUESTION TYPES:
+   - 2-3 "What/Who" questions (establish identity and services)
+   - 2-3 "How/Why" questions (demonstrate expertise)
+   - 1-2 location-specific questions (local visibility)
+   - 1-2 comparison/selection questions (capture comparison searches)
+
+Respond ONLY with a JSON array. Each item: {{"question": "...", "answer": "..."}}"""
+
+    print(f"[FAQ] Generating {num_faqs} FAQs for {client_name} via Claude...")
+
+    response = anthropic_client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=3000,
+        temperature=0.7,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    result_text = response.content[0].text.strip()
+
+    # Strip markdown code fences if present
+    if result_text.startswith('```'):
+        result_text = result_text.split('```')[1]
+        if result_text.startswith('json'):
+            result_text = result_text[4:]
+    result_text = result_text.strip()
+
+    faqs = json.loads(result_text)
+
+    if not isinstance(faqs, list) or len(faqs) == 0:
+        return {"error": "AI returned empty or invalid FAQ data"}
+
+    # Validate structure
+    valid_faqs = []
+    for faq in faqs:
+        if isinstance(faq, dict) and 'question' in faq and 'answer' in faq:
+            valid_faqs.append({
+                "question": faq["question"].strip(),
+                "answer": faq["answer"].strip(),
+            })
+
+    if not valid_faqs:
+        return {"error": "AI response contained no valid Q&A pairs"}
+
+    # Generate ready-to-paste HTML
+    html = _faqs_to_html(valid_faqs, client_name)
+
+    # Generate JSON-LD FAQ schema
+    schema = _faqs_to_schema(valid_faqs)
+
+    print(f"[FAQ] Generated {len(valid_faqs)} FAQs for {client_name}")
+
+    return {
+        "success": True,
+        "faqs": valid_faqs,
+        "html": html,
+        "schema": schema,
+        "count": len(valid_faqs),
+    }
+
+
+def _faqs_to_html(faqs, client_name):
+    """Convert FAQ list to ready-to-paste HTML for a Joomla article."""
+    lines = [f'<h2>Frequently Asked Questions About {client_name}</h2>', '']
+    for faq in faqs:
+        q = faq['question'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        a = faq['answer'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        lines.append(f'<h3>{q}</h3>')
+        lines.append(f'<p>{a}</p>')
+        lines.append('')
+    return '\n'.join(lines)
+
+
+def _faqs_to_schema(faqs):
+    """Convert FAQ list to JSON-LD FAQ schema markup."""
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": faq["question"],
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": faq["answer"],
+                },
+            }
+            for faq in faqs
+        ],
+    }
+    return json.dumps(schema, indent=2)

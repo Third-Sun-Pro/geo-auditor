@@ -96,6 +96,7 @@ def analyze_response(answer, client_name, client_website):
             mentions.append("Partial name match")
             name_found = True
         else:
+            pass
 
     # Domain name mention
     if domain_name and len(domain_name) > 3 and domain_name in answer_lower:

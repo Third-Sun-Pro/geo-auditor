@@ -3,7 +3,7 @@
 from flask import Blueprint, request, jsonify
 
 from config import openai_client, anthropic_client, gemini_model, perplexity_client, any_api_configured
-from services import run_full_audit, run_competitor_audit
+from services import run_full_audit, run_competitor_audit, generate_faqs
 from scraper import scrape_website, analyze_website_with_ai, generate_from_intake
 
 audit_bp = Blueprint('audit', __name__)
@@ -99,6 +99,37 @@ def generate_from_intake_route():
 
     if not result.get('success'):
         return jsonify({"error": result.get('error', 'Failed to process intake')}), 400
+
+    return jsonify(result)
+
+
+@audit_bp.route('/generate-faqs', methods=['POST'])
+def generate_faqs_route():
+    """Generate website-ready FAQs from audit data using Claude."""
+    data = request.json
+
+    client_name = data.get('client_name', '')
+    if not client_name:
+        return jsonify({"error": "Client name is required"}), 400
+
+    if not anthropic_client:
+        return jsonify({"error": "Anthropic API key not configured"}), 400
+
+    result = generate_faqs(
+        client_name=client_name,
+        client_website=data.get('client_website', ''),
+        industry=data.get('industry', ''),
+        location=data.get('location', ''),
+        queries=data.get('queries', []),
+        visibility_percentage=data.get('visibility_percentage', 0),
+        key_findings=data.get('key_findings', []),
+        recommendations=data.get('recommendations', []),
+        competitors=data.get('competitors', []),
+        num_faqs=data.get('num_faqs', 8),
+    )
+
+    if 'error' in result:
+        return jsonify(result), 400
 
     return jsonify(result)
 

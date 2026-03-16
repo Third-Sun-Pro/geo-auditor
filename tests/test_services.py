@@ -1,7 +1,11 @@
-"""Tests for services.py — recommendations and key findings (no API calls)."""
+"""Tests for services.py — recommendations, key findings, FAQ helpers (no API calls)."""
 
+import json
 import pytest
-from services import generate_recommendations, _visibility_level, _generate_key_findings
+from services import (
+    generate_recommendations, _visibility_level, _generate_key_findings,
+    _faqs_to_html, _faqs_to_schema,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -178,3 +182,60 @@ def test_platform_variance_finding():
     totals = {"chatgpt": 3, "claude": 0, "gemini": 3, "perplexity": 0}
     findings = _generate_key_findings(results, totals, 3)
     assert any("Platform Variance" in f for f in findings)
+
+
+# ---------------------------------------------------------------------------
+# FAQ helpers
+# ---------------------------------------------------------------------------
+
+SAMPLE_FAQS = [
+    {"question": "What does Acme Corp do?", "answer": "Acme Corp provides consulting services in Portland."},
+    {"question": "Where is Acme Corp located?", "answer": "Acme Corp is based in Portland, Oregon."},
+]
+
+
+def test_faqs_to_html_contains_heading():
+    html = _faqs_to_html(SAMPLE_FAQS, "Acme Corp")
+    assert "<h2>Frequently Asked Questions About Acme Corp</h2>" in html
+
+
+def test_faqs_to_html_contains_questions():
+    html = _faqs_to_html(SAMPLE_FAQS, "Acme Corp")
+    assert "<h3>What does Acme Corp do?</h3>" in html
+    assert "<h3>Where is Acme Corp located?</h3>" in html
+
+
+def test_faqs_to_html_contains_answers():
+    html = _faqs_to_html(SAMPLE_FAQS, "Acme Corp")
+    assert "<p>Acme Corp provides consulting services in Portland.</p>" in html
+
+
+def test_faqs_to_html_escapes_html():
+    faqs = [{"question": "Is <script> safe?", "answer": "Yes & no."}]
+    html = _faqs_to_html(faqs, "Test")
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "&amp;" in html
+
+
+def test_faqs_to_schema_valid_json():
+    schema_str = _faqs_to_schema(SAMPLE_FAQS)
+    schema = json.loads(schema_str)
+    assert schema["@context"] == "https://schema.org"
+    assert schema["@type"] == "FAQPage"
+
+
+def test_faqs_to_schema_has_all_questions():
+    schema_str = _faqs_to_schema(SAMPLE_FAQS)
+    schema = json.loads(schema_str)
+    assert len(schema["mainEntity"]) == 2
+    assert schema["mainEntity"][0]["@type"] == "Question"
+    assert schema["mainEntity"][0]["name"] == "What does Acme Corp do?"
+
+
+def test_faqs_to_schema_has_answers():
+    schema_str = _faqs_to_schema(SAMPLE_FAQS)
+    schema = json.loads(schema_str)
+    answer = schema["mainEntity"][0]["acceptedAnswer"]
+    assert answer["@type"] == "Answer"
+    assert "consulting services" in answer["text"]
