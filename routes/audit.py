@@ -3,7 +3,7 @@
 from flask import Blueprint, request, jsonify
 
 from config import openai_client, anthropic_client, gemini_model, perplexity_client, any_api_configured
-from services import run_full_audit, run_competitor_audit, generate_faqs, revise_faqs
+from services import run_full_audit, run_competitor_audit, generate_faqs, revise_faqs, build_faq_context
 from scraper import scrape_website, analyze_website_with_ai, generate_from_intake
 
 audit_bp = Blueprint('audit', __name__)
@@ -27,6 +27,24 @@ def run_audit():
         return jsonify({"error": "No API keys configured. Add at least one to .env file"}), 400
 
     result = run_full_audit(client_name, client_website, queries, package_type)
+
+    # Auto-generate FAQs if Anthropic is available
+    if result.get("success") and anthropic_client:
+        try:
+            faq_context = build_faq_context(
+                audit_result=result,
+                client_name=client_name,
+                client_website=client_website,
+                industry=data.get('industry', ''),
+                location=data.get('location', ''),
+            )
+            faq_result = generate_faqs(**faq_context)
+            if faq_result.get("success"):
+                result["auto_faqs"] = faq_result
+                print(f"[AUDIT] Auto-generated {faq_result['count']} FAQs")
+        except Exception as e:
+            print(f"[AUDIT] Auto FAQ generation failed (non-blocking): {e}")
+
     return jsonify(result)
 
 

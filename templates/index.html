@@ -1330,6 +1330,12 @@
 
                 updatePreview();
 
+                // Auto-populate FAQs if returned with audit
+                if (data.auto_faqs && data.auto_faqs.success) {
+                    populateFAQs(data.auto_faqs);
+                    progressText.textContent += ' | FAQs ready in the FAQs tab';
+                }
+
                 // Auto-save after audit completes
                 await saveAudit(true);
 
@@ -1771,6 +1777,29 @@
         // FAQ Generator Functions
         // =====================================================================
 
+        function populateFAQs(data) {
+            // Shared helper: populate the FAQs tab with generated FAQ data
+            generatedFAQs = data;
+            document.getElementById('faq-status').textContent = `Generated ${data.count} FAQs`;
+            document.getElementById('faq-status').style.color = '#2C3E50';
+            document.getElementById('faq-results').style.display = 'block';
+
+            const preview = document.getElementById('faq-preview');
+            preview.innerHTML = data.faqs.map((faq, i) => `
+                <div style="margin-bottom: 16px; ${i > 0 ? 'border-top: 1px solid #eee; padding-top: 16px;' : ''}">
+                    <div style="font-weight: 600; font-size: 14px; color: #2C3E50; margin-bottom: 6px;">
+                        Q: ${escapeHtml(faq.question)}
+                    </div>
+                    <div style="font-size: 13px; color: #555; line-height: 1.5;">
+                        ${escapeHtml(faq.answer)}
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById('faq-html-output').value = data.html;
+            document.getElementById('faq-schema-output').value = data.schema;
+        }
+
         function generateFAQs() {
             const btn = document.getElementById('btn-generate-faqs');
             const status = document.getElementById('faq-status');
@@ -1817,29 +1846,7 @@
                     return;
                 }
 
-                generatedFAQs = data;
-                status.textContent = `Generated ${data.count} FAQs`;
-                status.style.color = '#2C3E50';
-
-                // Show results
-                document.getElementById('faq-results').style.display = 'block';
-
-                // Render preview
-                const preview = document.getElementById('faq-preview');
-                preview.innerHTML = data.faqs.map((faq, i) => `
-                    <div style="margin-bottom: 16px; ${i > 0 ? 'border-top: 1px solid #eee; padding-top: 16px;' : ''}">
-                        <div style="font-weight: 600; font-size: 14px; color: #2C3E50; margin-bottom: 6px;">
-                            Q: ${escapeHtml(faq.question)}
-                        </div>
-                        <div style="font-size: 13px; color: #555; line-height: 1.5;">
-                            ${escapeHtml(faq.answer)}
-                        </div>
-                    </div>
-                `).join('');
-
-                // Fill textareas
-                document.getElementById('faq-html-output').value = data.html;
-                document.getElementById('faq-schema-output').value = data.schema;
+                populateFAQs(data);
             })
             .catch(err => {
                 btn.disabled = false;

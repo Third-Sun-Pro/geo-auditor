@@ -259,3 +259,103 @@ def test_faqs_to_schema_has_answers():
     answer = schema["mainEntity"][0]["acceptedAnswer"]
     assert answer["@type"] == "Answer"
     assert "consulting services" in answer["text"]
+
+
+# ---------------------------------------------------------------------------
+# Auto FAQ generation (post-audit)
+# ---------------------------------------------------------------------------
+
+def test_build_faq_context_from_audit_result():
+    """build_faq_context should extract the right fields from an audit result."""
+    from services import build_faq_context
+
+    audit_result = {
+        "success": True,
+        "results": [
+            {"query": "best coffee SLC", "type": "Local", "score": 3, "details": {}},
+            {"query": "Test Coffee reviews", "type": "Brand", "score": 9, "details": {}},
+        ],
+        "percentage": 42.5,
+        "key_findings": ["Weak local visibility"],
+        "recommendations": [{"title": "Improve Local", "issue": "Not found locally", "actions": []}],
+    }
+
+    ctx = build_faq_context(
+        audit_result=audit_result,
+        client_name="Test Coffee",
+        client_website="https://testcoffee.com",
+        industry="Specialty Coffee",
+        location="Salt Lake City",
+    )
+
+    assert ctx["client_name"] == "Test Coffee"
+    assert ctx["client_website"] == "https://testcoffee.com"
+    assert ctx["industry"] == "Specialty Coffee"
+    assert ctx["location"] == "Salt Lake City"
+    assert ctx["visibility_percentage"] == 42.5
+    assert len(ctx["queries"]) == 2
+    assert ctx["key_findings"] == ["Weak local visibility"]
+    assert len(ctx["recommendations"]) == 1
+
+
+def test_build_faq_context_with_competitors():
+    """build_faq_context should include competitor data when present."""
+    from services import build_faq_context
+
+    audit_result = {
+        "success": True,
+        "results": [],
+        "percentage": 50,
+        "key_findings": [],
+        "recommendations": [],
+    }
+
+    competitors = [
+        {"name": "Bean Bros", "visibility_display": "45%", "strengths": "Big chain"},
+    ]
+
+    ctx = build_faq_context(
+        audit_result=audit_result,
+        client_name="Test Coffee",
+        competitors=competitors,
+    )
+
+    assert ctx["competitors"] == competitors
+
+
+def test_build_faq_context_defaults():
+    """build_faq_context should handle missing optional fields gracefully."""
+    from services import build_faq_context
+
+    audit_result = {
+        "success": True,
+        "results": [],
+        "percentage": 0,
+        "key_findings": [],
+        "recommendations": [],
+    }
+
+    ctx = build_faq_context(audit_result=audit_result, client_name="Test")
+
+    assert ctx["client_name"] == "Test"
+    assert ctx["client_website"] == ""
+    assert ctx["industry"] == ""
+    assert ctx["location"] == ""
+    assert ctx["competitors"] is None
+    assert ctx["num_faqs"] == 8
+
+
+def test_build_faq_context_custom_num_faqs():
+    """build_faq_context should accept a custom num_faqs."""
+    from services import build_faq_context
+
+    audit_result = {
+        "success": True,
+        "results": [],
+        "percentage": 0,
+        "key_findings": [],
+        "recommendations": [],
+    }
+
+    ctx = build_faq_context(audit_result=audit_result, client_name="Test", num_faqs=5)
+    assert ctx["num_faqs"] == 5

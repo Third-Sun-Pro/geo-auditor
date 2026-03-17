@@ -721,6 +721,26 @@ def _template_recommendations(client_name, results, brand_queries, local_queries
 # FAQ generation
 # ---------------------------------------------------------------------------
 
+def build_faq_context(audit_result, client_name, client_website='', industry='',
+                      location='', competitors=None, num_faqs=8):
+    """Extract FAQ-relevant data from a completed audit result.
+
+    Returns a dict ready to be passed to generate_faqs() as **kwargs.
+    """
+    return {
+        "client_name": client_name,
+        "client_website": client_website,
+        "industry": industry,
+        "location": location,
+        "queries": audit_result.get("results", []),
+        "visibility_percentage": audit_result.get("percentage", 0),
+        "key_findings": audit_result.get("key_findings", []),
+        "recommendations": audit_result.get("recommendations", []),
+        "competitors": competitors,
+        "num_faqs": num_faqs,
+    }
+
+
 def generate_faqs(client_name, client_website, industry, location, queries,
                   visibility_percentage, key_findings, recommendations,
                   competitors=None, num_faqs=8):
