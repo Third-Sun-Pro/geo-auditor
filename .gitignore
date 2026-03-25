@@ -4,6 +4,7 @@
 
 # Database
 *.db
+!audits.db
 
 # Python
 __pycache__/

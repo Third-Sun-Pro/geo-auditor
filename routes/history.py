@@ -1,8 +1,31 @@
 """History routes — save, list, load, delete, and compare audits."""
 
+import os
+import subprocess
 from flask import Blueprint, request, jsonify
 
-from database import save_audit, list_audits, get_audit, delete_audit, get_comparison, mark_final, list_finals_due
+from database import save_audit, list_audits, get_audit, delete_audit, get_comparison, mark_final, list_finals_due, DATABASE
+
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def auto_push_db(message):
+    """Commit and push audits.db to git so the remote re-audit agent can see it."""
+    try:
+        subprocess.run(
+            ['git', 'add', 'audits.db'],
+            cwd=REPO_DIR, capture_output=True, timeout=10
+        )
+        subprocess.run(
+            ['git', 'commit', '-m', message],
+            cwd=REPO_DIR, capture_output=True, timeout=10
+        )
+        subprocess.run(
+            ['git', 'push'],
+            cwd=REPO_DIR, capture_output=True, timeout=30
+        )
+    except Exception:
+        pass  # Don't fail the request if git push fails
 
 history_bp = Blueprint('history', __name__)
 
@@ -50,10 +73,12 @@ def delete_audit_route(audit_id):
 
 @history_bp.route('/audits/<int:audit_id>/final', methods=['POST'])
 def mark_final_route(audit_id):
-    """Mark or unmark an audit as final."""
+    """Mark or unmark an audit as final, then auto-push db to git."""
     data = request.json or {}
     is_final = data.get('is_final', True)
     if mark_final(audit_id, is_final):
+        action = "Mark" if is_final else "Unmark"
+        auto_push_db(f"{action} audit {audit_id} as final")
         return jsonify({"success": True})
     return jsonify({"error": "Audit not found"}), 404
 
