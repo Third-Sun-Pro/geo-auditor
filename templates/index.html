@@ -2123,6 +2123,7 @@
                                         ${audit.visibility_percentage !== null
                                             ? '<span style="background: var(--orange-primary); color: white; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 600;">' + audit.visibility_percentage + '%</span>'
                                             : ''}
+                                        <button class="btn-remove" onclick="event.stopPropagation(); toggleFinal(${audit.id}, ${!audit.is_final})" style="font-size: 10px; padding: 3px 8px; background: ${audit.is_final ? '#166534' : '#666'}; color: white;">${audit.is_final ? '★ Final' : '☆ Mark Final'}</button>
                                         <button class="btn-remove" onclick="event.stopPropagation(); startReaudit(${audit.id})" style="font-size: 10px; padding: 3px 8px; background: var(--maroon-accent); color: white;">Re-Audit</button>
                                         <button class="btn-remove" onclick="event.stopPropagation(); deleteAudit(${audit.id})" style="font-size: 10px; padding: 3px 8px;">Delete</button>
                                     </div>
@@ -2326,6 +2327,24 @@
                 }
             } catch (err) {
                 alert('Delete failed: ' + err.message);
+            }
+        }
+
+        async function toggleFinal(auditId, isFinal) {
+            try {
+                const response = await fetch('/audits/' + auditId + '/final', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_final: isFinal })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    loadAuditHistory();
+                } else {
+                    alert('Failed: ' + result.error);
+                }
+            } catch (err) {
+                alert('Failed: ' + err.message);
             }
         }
 

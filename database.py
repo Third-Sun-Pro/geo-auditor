@@ -43,6 +43,16 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Migration: add is_final and final_at columns
+    try:
+        db.execute('ALTER TABLE audits ADD COLUMN is_final INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute('ALTER TABLE audits ADD COLUMN final_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+
     db.commit()
     db.close()
 
@@ -123,7 +133,7 @@ def list_audits():
         rows = db.execute('''
             SELECT id, client_name, client_website, industry, audit_date,
                    visibility_percentage, package_type, previous_audit_id,
-                   created_at, updated_at
+                   is_final, final_at, created_at, updated_at
             FROM audits
             ORDER BY updated_at DESC
         ''').fetchall()
@@ -137,6 +147,8 @@ def list_audits():
             "visibility_percentage": row["visibility_percentage"],
             "package_type": row["package_type"],
             "previous_audit_id": row["previous_audit_id"],
+            "is_final": bool(row["is_final"]),
+            "final_at": row["final_at"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"]
         } for row in rows]
@@ -236,6 +248,47 @@ def get_comparison(current_id, previous_id):
         "queries_declined": len([q for q in query_changes if q["change"] < 0]),
         "queries_unchanged": len([q for q in query_changes if q["change"] == 0]),
     }
+
+
+def mark_final(audit_id, is_final=True):
+    """Mark or unmark an audit as final. Returns True if updated."""
+    db = get_db()
+    try:
+        final_at = "datetime('now')" if is_final else "NULL"
+        result = db.execute(
+            f'UPDATE audits SET is_final = ?, final_at = {final_at} WHERE id = ?',
+            (1 if is_final else 0, audit_id)
+        )
+        db.commit()
+        return result.rowcount > 0
+    finally:
+        db.close()
+
+
+def list_finals_due(days=30):
+    """Return final audits where final_at is older than `days` days ago."""
+    db = get_db()
+    try:
+        rows = db.execute('''
+            SELECT id, client_name, client_website, industry, audit_date,
+                   visibility_percentage, package_type, is_final, final_at,
+                   created_at, updated_at
+            FROM audits
+            WHERE is_final = 1
+              AND final_at <= datetime('now', ? || ' days')
+        ''', (f'-{days}',)).fetchall()
+
+        return [{
+            "id": row["id"],
+            "client_name": row["client_name"],
+            "client_website": row["client_website"],
+            "industry": row["industry"],
+            "visibility_percentage": row["visibility_percentage"],
+            "final_at": row["final_at"],
+            "days_since_final": days
+        } for row in rows]
+    finally:
+        db.close()
 
 
 def delete_audit(audit_id):

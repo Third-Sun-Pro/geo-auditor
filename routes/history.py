@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 
-from database import save_audit, list_audits, get_audit, delete_audit, get_comparison
+from database import save_audit, list_audits, get_audit, delete_audit, get_comparison, mark_final, list_finals_due
 
 history_bp = Blueprint('history', __name__)
 
@@ -46,6 +46,23 @@ def delete_audit_route(audit_id):
     if delete_audit(audit_id):
         return jsonify({"success": True})
     return jsonify({"error": "Audit not found"}), 404
+
+
+@history_bp.route('/audits/<int:audit_id>/final', methods=['POST'])
+def mark_final_route(audit_id):
+    """Mark or unmark an audit as final."""
+    data = request.json or {}
+    is_final = data.get('is_final', True)
+    if mark_final(audit_id, is_final):
+        return jsonify({"success": True})
+    return jsonify({"error": "Audit not found"}), 404
+
+
+@history_bp.route('/audits/finals-due', methods=['GET'])
+def finals_due_route():
+    """Return final audits that are due for re-audit (30+ days old)."""
+    days = request.args.get('days', 30, type=int)
+    return jsonify({"audits": list_finals_due(days)})
 
 
 @history_bp.route('/audits/<int:current_id>/compare/<int:previous_id>', methods=['GET'])
