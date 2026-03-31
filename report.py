@@ -92,6 +92,43 @@ def _executive_context(percentage, num_queries):
     )
 
 
+def _reaudit_executive_context(prev_pct, cur_pct, pct_change, queries_improved, queries_declined):
+    """Return contextual narrative for re-audit executive summary focused on progress."""
+    if pct_change > 10:
+        progress_line = (
+            "This represents significant progress. The GEO strategy is clearly working, "
+            "and the business is gaining meaningful traction across AI search platforms."
+        )
+    elif pct_change > 0:
+        progress_line = (
+            "This is positive movement in the right direction. AI platforms are beginning "
+            "to surface the business more consistently as optimization efforts take hold."
+        )
+    elif pct_change == 0:
+        progress_line = (
+            "Visibility has held steady since the last audit. While the score hasn't "
+            "changed, maintaining position in a shifting AI landscape is still meaningful. "
+            "The recommendations below target areas with the most room for growth."
+        )
+    else:
+        progress_line = (
+            "Visibility has dipped slightly since the last audit. This can happen as AI "
+            "models update and competitors invest in their own optimization. The "
+            "recommendations below are calibrated to regain and surpass the previous baseline."
+        )
+
+    movement_line = ""
+    if queries_improved > 0 or queries_declined > 0:
+        parts = []
+        if queries_improved > 0:
+            parts.append(f"{queries_improved} search queries showed improvement")
+        if queries_declined > 0:
+            parts.append(f"{queries_declined} declined")
+        movement_line = " ".join(parts) + " — see the detailed comparison below."
+
+    return f"{progress_line} {movement_line}"
+
+
 def generate_report_html(data):
     """Generate the HTML report from form data."""
 
@@ -104,6 +141,14 @@ def generate_report_html(data):
     max_score = len(queries) * 12
     percentage = (total_score / max_score) * 100 if max_score > 0 else 0
 
+    # Build comparison data lookups for use across the report
+    comparison = data.get('comparison_data')
+    is_reaudit = comparison is not None
+    prev_query_scores = {}
+    if comparison:
+        for qc in comparison.get('query_changes', []):
+            prev_query_scores[qc.get('query', '')] = qc.get('previous_score', 0)
+
     # Check if per-platform details exist (new audits have them, old ones don't)
     has_details = any(q.get('details') for q in queries)
 
@@ -114,6 +159,23 @@ def generate_report_html(data):
         score_class = get_score_class(score)
         icon = get_score_icon(score)
         details = q.get('details', {})
+
+        # Build change cell for re-audits
+        change_cell = ""
+        if is_reaudit:
+            query_text = q.get('query', '')
+            if query_text in prev_query_scores:
+                prev_score = prev_query_scores[query_text]
+                delta = score - prev_score
+                if delta > 0:
+                    change_cell = f'<td style="text-align: center; color: #1E8449; font-weight: 600; font-size: 9pt;">&#9650; +{delta}</td>'
+                elif delta < 0:
+                    change_cell = f'<td style="text-align: center; color: #922B21; font-weight: 600; font-size: 9pt;">&#9660; {delta}</td>'
+                else:
+                    change_cell = '<td style="text-align: center; color: #888; font-size: 9pt;">&mdash;</td>'
+            else:
+                change_cell = '<td style="text-align: center; color: #888; font-size: 8pt;">new</td>'
+
         if has_details:
             chatgpt_cell = _platform_score_cell(details.get('chatgpt', {}).get('score', 0))
             claude_cell = _platform_score_cell(details.get('claude', {}).get('score', 0))
@@ -126,6 +188,7 @@ def generate_report_html(data):
                 <td>{q.get('type', '')}</td>
                 {chatgpt_cell}{claude_cell}{gemini_cell}{perplexity_cell}
                 <td class="{score_class}">{score}/12</td>
+                {change_cell}
                 <td>{icon} {q.get('finding', '')}</td>
             </tr>"""
         else:
@@ -135,31 +198,37 @@ def generate_report_html(data):
                 <td>{q.get('query', '')}</td>
                 <td>{q.get('type', '')}</td>
                 <td class="{score_class}">{score}/12</td>
+                {change_cell}
                 <td>{icon} {q.get('finding', '')}</td>
             </tr>"""
 
-    # Build query table header (conditional on per-platform details)
+    # Build query table header (conditional on per-platform details and re-audit)
+    change_header = '<th style="width: 6%; text-align: center;">+/-</th>' if is_reaudit else ''
     if has_details:
-        query_table_header = """
+        findings_width = '26%' if is_reaudit else '32%'
+        query_table_header = f"""
             <tr>
                 <th style="width: 4%">#</th>
-                <th style="width: 24%">QUERY</th>
+                <th style="width: 22%">QUERY</th>
                 <th style="width: 8%">TYPE</th>
                 <th style="width: 6%; text-align: center;" title="ChatGPT">GPT</th>
                 <th style="width: 6%; text-align: center;" title="Claude">CL</th>
                 <th style="width: 6%; text-align: center;" title="Gemini">GEM</th>
                 <th style="width: 6%; text-align: center;" title="Perplexity">PPX</th>
                 <th style="width: 8%">TOTAL</th>
-                <th style="width: 32%">KEY FINDINGS</th>
+                {change_header}
+                <th style="width: {findings_width}">KEY FINDINGS</th>
             </tr>"""
     else:
-        query_table_header = """
+        findings_width = '39%' if is_reaudit else '45%'
+        query_table_header = f"""
             <tr>
                 <th style="width: 5%">#</th>
-                <th style="width: 30%">QUERY</th>
+                <th style="width: 28%">QUERY</th>
                 <th style="width: 10%">TYPE</th>
                 <th style="width: 10%">SCORE</th>
-                <th style="width: 45%">KEY FINDINGS</th>
+                {change_header}
+                <th style="width: {findings_width}">KEY FINDINGS</th>
             </tr>"""
 
     # Generate platform cards
@@ -176,6 +245,27 @@ def generate_report_html(data):
         max_p = pdata.get('max', 30)
         pct = (score / max_p) * 100 if max_p > 0 else 0
         fill_class = _platform_fill_class(pct)
+
+        # Build before/after comparison for re-audits
+        platform_prev_html = ""
+        if is_reaudit and comparison:
+            p_changes = comparison.get('platform_changes', {}).get(platform, {})
+            p_prev_pct = p_changes.get('previous', 0)
+            p_delta = p_changes.get('change', 0)
+            if p_delta > 0:
+                delta_html = f'<span style="color: #1E8449; font-weight: 600;">&#9650; +{p_delta:.1f}%</span>'
+            elif p_delta < 0:
+                delta_html = f'<span style="color: #922B21; font-weight: 600;">&#9660; {p_delta:.1f}%</span>'
+            else:
+                delta_html = '<span style="color: #888;">no change</span>'
+            prev_fill = _platform_fill_class(p_prev_pct)
+            platform_prev_html = f"""
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">
+                <div style="font-size: 8pt; color: #999; margin-bottom: 3px;">Previous: {p_prev_pct:.0f}%</div>
+                <div class="progress-bar" style="margin: 0 0 6px 0;"><div class="progress-fill {prev_fill}" style="width: {p_prev_pct:.0f}%; opacity: 0.4;"></div></div>
+                <div style="font-size: 10pt;">{delta_html}</div>
+            </div>"""
+
         platform_cards += f"""
         <div class="platform-card">
             <h3>{platform_names.get(platform, platform)}</h3>
@@ -183,6 +273,7 @@ def generate_report_html(data):
             <div class="progress-bar"><div class="progress-fill {fill_class}" style="width: {pct:.0f}%"></div></div>
             <p class="platform-visibility">{score}/{max_p} points</p>
             <p class="platform-model">{pdata.get('note', '')}</p>
+            {platform_prev_html}
         </div>"""
 
     # Generate recommendations
@@ -224,8 +315,6 @@ def generate_report_html(data):
 
     client = data.get('client', {})
 
-    # Build comparison section if previous audit data exists
-    comparison = data.get('comparison_data')
     comparison_html = ""
     if comparison:
         pct_change = comparison.get('percentage_change', 0)
@@ -292,24 +381,150 @@ def generate_report_html(data):
                 "</tbody></table>"
             )
 
+        # Build side-by-side platform bar charts
+        platform_bars_html = ""
+        for p_key in ['chatgpt', 'claude', 'gemini', 'perplexity']:
+            p_data = comparison.get('platform_changes', {}).get(p_key, {})
+            p_prev = p_data.get('previous', 0)
+            p_cur = p_data.get('current', 0)
+            p_change = p_data.get('change', 0)
+            p_sign = '+' if p_change >= 0 else ''
+            p_color = '#1E8449' if p_change > 0 else '#922B21' if p_change < 0 else '#888'
+            prev_fill = _platform_fill_class(p_prev)
+            cur_fill = _platform_fill_class(p_cur)
+            platform_bars_html += f"""
+                <div style="background: white; padding: 16px 20px; border-radius: 10px; border: 1px solid #e5e7eb;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-weight: 600; font-size: 11pt; color: #333;">{platform_names_cmp.get(p_key, p_key)}</span>
+                        <span style="font-weight: 700; font-size: 12pt; color: {p_color};">{p_sign}{p_change:.1f}%</span>
+                    </div>
+                    <div style="margin-bottom: 6px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 8pt; color: #999; margin-bottom: 2px;">
+                            <span>Previous: {p_prev:.0f}%</span>
+                        </div>
+                        <div style="width: 100%; height: 6px; background: #eee; border-radius: 3px; overflow: hidden;">
+                            <div class="{prev_fill}" style="width: {p_prev:.0f}%; height: 100%; border-radius: 3px; opacity: 0.4;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; font-size: 8pt; color: #555; margin-bottom: 2px;">
+                            <span>Current: {p_cur:.0f}%</span>
+                        </div>
+                        <div style="width: 100%; height: 6px; background: #eee; border-radius: 3px; overflow: hidden;">
+                            <div class="{cur_fill}" style="width: {p_cur:.0f}%; height: 100%; border-radius: 3px;"></div>
+                        </div>
+                    </div>
+                </div>
+            """
+
+        # Build FULL query-by-query comparison table (all queries, not just top 3/2)
+        full_query_rows_cmp = ""
+        for q in query_changes:
+            q_change = q.get('change', 0)
+            q_sign = '+' if q_change > 0 else ''
+            if q_change > 0:
+                row_bg = '#f0fdf4'
+                change_html = f'<span style="color: #1E8449; font-weight: 600;">&#9650; {q_sign}{q_change}</span>'
+            elif q_change < 0:
+                row_bg = '#fef2f2'
+                change_html = f'<span style="color: #922B21; font-weight: 600;">&#9660; {q_change}</span>'
+            else:
+                row_bg = '#fff'
+                change_html = '<span style="color: #888;">&mdash;</span>'
+
+            full_query_rows_cmp += f"""
+                <tr style="background: {row_bg};">
+                    <td style="font-size: 9pt;">{q.get('query', '')}</td>
+                    <td style="text-align: center; font-size: 9pt; color: #999;">{q.get('type', '')}</td>
+                    <td style="text-align: center; font-size: 9pt;">{q.get('previous_score', 0)}/12</td>
+                    <td style="text-align: center; font-size: 9pt; font-weight: 600;">{q.get('current_score', 0)}/12</td>
+                    <td style="text-align: center; font-size: 9pt;">{change_html}</td>
+                </tr>
+            """
+
         comparison_html = f"""
-    <div style="background: linear-gradient(135deg, #f0fdf4, #ecfdf5); border: 1px solid #86efac; border-radius: 12px; padding: 25px 30px; margin: 30px 0; page-break-inside: avoid;">
-        <h3 style="color: #166534; margin: 0 0 5px 0; font-size: 14pt;">Progress Since Last Audit</h3>
-        <p style="font-size: 9pt; color: #666; margin: 0 0 20px 0;">Compared to audit from {prev_date}</p>
+    <div class="page-break"></div>
 
-        <div style="text-align: center; margin-bottom: 20px;">
-            <div style="font-size: 36pt; font-weight: 800; color: {change_color};">{arrow} {change_sign}{pct_change:.1f}%</div>
-            <div style="font-size: 11pt; color: #555;">{prev_pct:.1f}% &rarr; {cur_pct:.1f}% overall visibility</div>
-            <div style="font-size: 10pt; color: #888; margin-top: 8px;">{queries_improved} queries improved &middot; {queries_declined} declined &middot; {queries_unchanged} unchanged</div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-            {platform_changes_html}
-        </div>
-
-        {query_table_cmp}
+    <!-- ===== PROGRESS REPORT PAGE ===== -->
+    <div class="section-header">
+        <h2>Progress Since Last Audit</h2>
     </div>
+    <p style="font-size: 10pt; color: #888; margin-bottom: 25px;">Compared to audit from {prev_date}</p>
+
+    <!-- Big score change hero -->
+    <div style="background: linear-gradient(135deg, #f0fdf4, #ecfdf5); border: 1px solid #86efac; border-radius: 16px; padding: 35px 40px; margin-bottom: 30px; text-align: center; page-break-inside: avoid;">
+        <div style="font-size: 48pt; font-weight: 800; color: {change_color}; line-height: 1;">{arrow} {change_sign}{pct_change:.1f}%</div>
+        <div style="font-size: 14pt; color: #555; margin-top: 10px; font-weight: 500;">{prev_pct:.1f}% &rarr; {cur_pct:.1f}% overall visibility</div>
+        <div style="font-size: 11pt; color: #888; margin-top: 8px;">{queries_improved} queries improved &middot; {queries_declined} declined &middot; {queries_unchanged} unchanged</div>
+    </div>
+
+    <!-- Platform comparison with before/after bars -->
+    <h3 style="color: #333; font-size: 13pt; margin: 25px 0 15px 0;">Platform-by-Platform Progress</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 30px; page-break-inside: avoid;">
+        {platform_bars_html}
+    </div>
+
+    <!-- Query-by-query detail is shown in the Detailed Query Results table with +/- column -->
         """
+
+    # Build sections that are excluded from re-audits
+    score_interpretation_html = ""
+    if not is_reaudit:
+        score_interpretation_html = """<div class="score-interpretation">
+        <div class="score-level level-strong">
+            <span class="level-range">70%+</span>
+            Excellent
+        </div>
+        <div class="score-level level-moderate">
+            <span class="level-range">50-69%</span>
+            Strong
+        </div>
+        <div class="score-level level-low">
+            <span class="level-range">30-49%</span>
+            Moderate
+        </div>
+        <div class="score-level level-not-found">
+            <span class="level-range">&lt;30%</span>
+            Needs Work
+        </div>
+    </div>"""
+
+    geo_explainer_html = ""
+    if not is_reaudit:
+        geo_explainer_html = f"""<div class="geo-explainer">
+        <h3>What is Generative Engine Optimization?</h3>
+        <p>
+            When people search using AI tools like ChatGPT, Claude, Gemini, and Perplexity, these
+            platforms generate answers by pulling from websites across the internet. <strong>Generative
+            Engine Optimization (GEO)</strong> measures whether your business is being mentioned,
+            cited, or recommended in those AI-generated responses.
+        </p>
+        <p>
+            This audit tested {len(queries)} real search queries — the kinds of questions your potential
+            customers are asking — across 4 major AI platforms to see how visible
+            {client.get('name', 'your business')} is in this new search landscape.
+        </p>
+    </div>"""
+
+    competitor_section_html = ""
+    if not is_reaudit:
+        competitor_section_html = f"""<div class="section-header">
+        <h2>Competitive Landscape</h2>
+    </div>
+    <p style="font-size: 10pt; color: #888; margin-bottom: 15px;">Based on AI search visibility testing</p>
+    <table>
+        <thead>
+            <tr>
+                <th>COMPETITOR</th>
+                <th>EST. VISIBILITY</th>
+                <th>STRENGTHS</th>
+                <th>YOUR ADVANTAGE</th>
+            </tr>
+        </thead>
+        <tbody>
+            {competitor_rows}
+        </tbody>
+    </table>"""
 
     html = f"""
 <!DOCTYPE html>
@@ -874,26 +1089,10 @@ def generate_report_html(data):
         <p class="score-note">
             {total_score} out of {max_score} points across {len(queries)} queries on 4 AI platforms
         </p>
+        {"<p class='score-note' style='margin-top: 10px; font-size: 13pt; font-weight: 600;'>" + ("&#9650; +" if comparison.get("percentage_change", 0) >= 0 else "&#9660; ") + f"{comparison.get('percentage_change', 0):.1f}% since last audit</p>" if is_reaudit else ""}
     </div>
 
-    <div class="score-interpretation">
-        <div class="score-level level-strong">
-            <span class="level-range">70%+</span>
-            Excellent
-        </div>
-        <div class="score-level level-moderate">
-            <span class="level-range">50-69%</span>
-            Strong
-        </div>
-        <div class="score-level level-low">
-            <span class="level-range">30-49%</span>
-            Moderate
-        </div>
-        <div class="score-level level-not-found">
-            <span class="level-range">&lt;30%</span>
-            Needs Work
-        </div>
-    </div>
+    {score_interpretation_html}
 
     <div class="prepared-by">
         Prepared by <strong>Third Sun Productions</strong> &middot; thirdsunproductions.com
@@ -902,29 +1101,17 @@ def generate_report_html(data):
     <div class="page-break"></div>
 
     <!-- ===== PAGE 2: CONTEXT + ANALYSIS ===== -->
-    <div class="geo-explainer">
-        <h3>What is Generative Engine Optimization?</h3>
-        <p>
-            When people search using AI tools like ChatGPT, Claude, Gemini, and Perplexity, these
-            platforms generate answers by pulling from websites across the internet. <strong>Generative
-            Engine Optimization (GEO)</strong> measures whether your business is being mentioned,
-            cited, or recommended in those AI-generated responses.
-        </p>
-        <p>
-            This audit tested {len(queries)} real search queries — the kinds of questions your potential
-            customers are asking — across 4 major AI platforms to see how visible
-            {client.get('name', 'your business')} is in this new search landscape.
-        </p>
-    </div>
+    {geo_explainer_html}
 
     <div class="section-header">
         <h2>Executive Summary</h2>
     </div>
     <div class="executive-summary">
+        {"" if not is_reaudit else "<p><em>This is a follow-up audit measuring progress since the previous assessment.</em></p>"}
         <p>
-            {client.get('name', 'The client')} demonstrates <strong>{_visibility_label(percentage).lower()} visibility</strong>
-            across AI-powered search engines, scoring {percentage:.0f}% overall.
-            {_executive_context(percentage, len(queries))}
+            {client.get('name', 'The client')} {"now demonstrates" if is_reaudit else "demonstrates"} <strong>{_visibility_label(percentage).lower()} visibility</strong>
+            across AI-powered search engines, scoring {percentage:.0f}% overall{(", up from " + str(comparison['previous_percentage']) + "%.") if is_reaudit and comparison.get('percentage_change', 0) > 0 else (", down from " + str(comparison['previous_percentage']) + "%.") if is_reaudit and comparison.get('percentage_change', 0) < 0 else "."}
+            {_reaudit_executive_context(comparison.get('previous_percentage', 0), percentage, comparison.get('percentage_change', 0), comparison.get('queries_improved', 0), comparison.get('queries_declined', 0)) if is_reaudit else _executive_context(percentage, len(queries))}
         </p>
 
         <p><strong>KEY FINDINGS</strong></p>
@@ -998,24 +1185,7 @@ def generate_report_html(data):
 
     {recommendation_html}
 
-    <!-- ===== COMPETITIVE LANDSCAPE ===== -->
-    <div class="section-header">
-        <h2>Competitive Landscape</h2>
-    </div>
-    <p style="font-size: 10pt; color: #888; margin-bottom: 15px;">Based on AI search visibility testing</p>
-    <table>
-        <thead>
-            <tr>
-                <th>COMPETITOR</th>
-                <th>EST. VISIBILITY</th>
-                <th>STRENGTHS</th>
-                <th>YOUR ADVANTAGE</th>
-            </tr>
-        </thead>
-        <tbody>
-            {competitor_rows}
-        </tbody>
-    </table>
+    {competitor_section_html}
 
     <!-- ===== NEXT STEPS ===== -->
     <div class="section-header">
@@ -1023,11 +1193,7 @@ def generate_report_html(data):
     </div>
     <div class="geo-explainer" style="border-left-color: var(--brand-orange);">
         <p style="font-size: 11pt; margin: 0 0 12px 0;"><strong>Your path forward:</strong></p>
-        <ul class="key-findings" style="margin: 0;">
-            <li><strong>Review the {len(recommendations)} recommendations</strong> in this report, starting with the high-priority items</li>
-            <li><strong>Implement changes</strong> — focus on structured data, content optimization, and authority signals first</li>
-            <li><strong>Schedule a re-audit in 30–60 days</strong> to measure improvement and track progress over time</li>
-        </ul>
+        {"<ul class='key-findings' style='margin: 0;'><li><strong>Review the updated recommendations</strong> — these account for progress made since the last audit and focus on what still needs attention</li><li><strong>Continue implementation</strong> — some changes may not yet be reflected in AI responses due to indexing delays (typically 4–8 weeks)</li><li><strong>Schedule another follow-up audit in 30–60 days</strong> to continue tracking momentum</li></ul>" if is_reaudit else f"<ul class='key-findings' style='margin: 0;'><li><strong>Review the {len(recommendations)} recommendations</strong> in this report, starting with the high-priority items</li><li><strong>Implement changes</strong> — focus on structured data, content optimization, and authority signals first</li><li><strong>Schedule a re-audit in 30–60 days</strong> to measure improvement and track progress over time</li></ul>"}
     </div>
 
     <div class="footer">

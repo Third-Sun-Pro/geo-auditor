@@ -3,6 +3,7 @@
 from flask import Blueprint, request, jsonify
 
 from config import openai_client, anthropic_client, gemini_model, perplexity_client, any_api_configured
+from database import get_audit
 from services import run_full_audit, run_competitor_audit, generate_faqs, revise_faqs, build_faq_context
 from scraper import scrape_website, analyze_website_with_ai, generate_from_intake
 
@@ -26,7 +27,17 @@ def run_audit():
     if not any_api_configured():
         return jsonify({"error": "No API keys configured. Add at least one to .env file"}), 400
 
-    result = run_full_audit(client_name, client_website, queries, package_type)
+    # Load previous audit context for re-audits (informs recommendations)
+    previous_audit_id = data.get('previous_audit_id')
+    previous_recommendations = None
+    if previous_audit_id:
+        prev_audit = get_audit(previous_audit_id)
+        if prev_audit:
+            prev_fd = prev_audit.get('form_data', {})
+            previous_recommendations = prev_fd.get('recommendations', [])
+
+    result = run_full_audit(client_name, client_website, queries, package_type,
+                            previous_recommendations=previous_recommendations)
 
     # Auto-generate FAQs if Anthropic is available
     if result.get("success") and anthropic_client:

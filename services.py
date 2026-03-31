@@ -23,7 +23,8 @@ PLATFORM_NAMES = {
 PLATFORMS = list(PLATFORM_NAMES.keys())
 
 
-def run_full_audit(client_name, client_website, queries, package_type="basic"):
+def run_full_audit(client_name, client_website, queries, package_type="basic",
+                   previous_recommendations=None):
     """Run a GEO audit: query all platforms for each search term in parallel.
 
     Returns a dict ready to be jsonify'd by the route handler.
@@ -117,7 +118,8 @@ def run_full_audit(client_name, client_website, queries, package_type="basic"):
         percentage,
         best_platform[0] if platforms_tested else None,
         worst_platform[0] if platforms_tested else None,
-        package_type
+        package_type,
+        previous_recommendations=previous_recommendations
     )
 
     return {
@@ -470,7 +472,7 @@ Write ONE specific advantage (under 10 words). No quotes, no client name."""
 
 def generate_recommendations(client_name, results, brand_queries, local_queries,
                              info_queries, percentage, best_platform, worst_platform,
-                             package_type="basic"):
+                             package_type="basic", previous_recommendations=None):
     """Generate AI-personalized recommendations based on actual audit results.
 
     Falls back to template-based recommendations if the AI call fails.
@@ -485,7 +487,8 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
     try:
         recs = _ai_recommendations(
             client_name, results, brand_queries, local_queries,
-            info_queries, percentage, best_platform, worst_platform, package_type
+            info_queries, percentage, best_platform, worst_platform, package_type,
+            previous_recommendations=previous_recommendations
         )
         if recs:
             return recs
@@ -500,7 +503,7 @@ def generate_recommendations(client_name, results, brand_queries, local_queries,
 
 def _ai_recommendations(client_name, results, brand_queries, local_queries,
                          info_queries, percentage, best_platform, worst_platform,
-                         package_type):
+                         package_type, previous_recommendations=None):
     """Call OpenAI to generate personalized recommendations from audit data."""
     import json
 
@@ -531,8 +534,30 @@ def _ai_recommendations(client_name, results, brand_queries, local_queries,
         # The queries themselves reveal the services being tested
         all_services.add(r.get('query', ''))
 
+    # Build previous recommendations context for re-audits
+    prev_recs_context = ""
+    if previous_recommendations:
+        prev_recs_lines = []
+        for i, rec in enumerate(previous_recommendations, 1):
+            actions_str = "; ".join(rec.get('actions', [])[:3])
+            prev_recs_lines.append(
+                f"  {i}. [{rec.get('priority', 'medium').upper()}] {rec.get('title', '')} — {actions_str}"
+            )
+        prev_recs_context = f"""
+PREVIOUS AUDIT RECOMMENDATIONS (from prior audit):
+{chr(10).join(prev_recs_lines)}
+
+IMPORTANT RE-AUDIT CONTEXT:
+- This is a FOLLOW-UP audit. The client has likely implemented some of the above recommendations.
+- If a previously-recommended area now scores well, acknowledge the improvement and move on to new priorities.
+- If a previously-recommended area still scores poorly, note that the changes may not yet be reflected
+  in AI responses (indexing typically takes 4-8 weeks) — do NOT simply repeat the same recommendation.
+  Instead, suggest next-level actions or patience if the basics are already in place.
+- Focus new recommendations on gaps that weren't addressed in the previous audit.
+"""
+
     prompt = f"""You are a GEO (Generative Engine Optimization) consultant writing recommendations
-for a client audit report. Generate {num_recs} personalized, actionable recommendations.
+for a client {"re-audit (follow-up)" if previous_recommendations else "audit"} report. Generate {num_recs} personalized, actionable recommendations.
 
 CLIENT: {client_name}
 OVERALL VISIBILITY: {percentage:.0f}%
@@ -548,7 +573,7 @@ LOCAL QUERY RESULTS (scored poorly = not appearing for local service searches):
 
 INFO QUERY RESULTS (scored poorly = not cited as an authority):
 {info_summary}
-
+{prev_recs_context}
 RULES FOR YOUR RECOMMENDATIONS:
 1. REFERENCE ACTUAL FAILED QUERIES — In the "issue" field, mention the specific queries
    that scored poorly. Don't be vague — say exactly what searches they're missing.
@@ -571,6 +596,8 @@ RULES FOR YOUR RECOMMENDATIONS:
    - low: Nice-to-haves and long-term strategy
 
 6. 3-5 ACTIONS per recommendation. Each action is one sentence.
+
+7. DO NOT recommend adding OpenGraph tags. They do not impact AI search visibility.
 
 Respond ONLY with a JSON array. Each item:
 {{"title": "Short title", "priority": "high|medium|low", "issue": "Why this matters — reference the failed queries", "actions": ["Action 1", "Action 2", ...]}}"""

@@ -107,6 +107,25 @@
             box-shadow: none;
         }
 
+        .btn-reaudit {
+            background: linear-gradient(135deg, #166534 0%, #14532d 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            margin-right: 10px;
+            transition: all 0.2s ease;
+            display: none;
+        }
+
+        .btn-reaudit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(22, 101, 52, 0.3);
+        }
+
         .api-status {
             font-size: 12px;
             padding: 6px 12px;
@@ -465,6 +484,7 @@
             </div>
             <div style="margin-bottom: 15px;">
                 <button class="btn-run-audit" onclick="runAudit()">Run Audit</button>
+                <button id="btn-reaudit-main" class="btn-reaudit" onclick="startReauditFromLoaded()">&#x21bb; Run Re-Audit</button>
                 <button class="btn-download" onclick="saveAudit(false)" style="background: #6c757d;">Save</button>
                 <button id="btn-download-pdf" class="btn-download" onclick="downloadPDF()">Download PDF</button>
                 <span id="save-indicator" style="margin-left: 8px; font-size: 13px; color: #22c55e; font-weight: 500; opacity: 0; transition: opacity 0.5s;"></span>
@@ -1158,15 +1178,19 @@
 
             try {
                 const packageType = document.getElementById('client-package').value;
+                const auditPayload = {
+                    client_name: clientName,
+                    client_website: clientWebsite,
+                    queries: queries,
+                    package_type: packageType
+                };
+                if (reauditFromId) {
+                    auditPayload.previous_audit_id = reauditFromId;
+                }
                 const response = await fetch('/run-audit', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        client_name: clientName,
-                        client_website: clientWebsite,
-                        queries: queries,
-                        package_type: packageType
-                    })
+                    body: JSON.stringify(auditPayload)
                 });
 
                 progressFill.style.width = '80%';
@@ -1708,7 +1732,7 @@
 
         // Get all form data
         function getFormData() {
-            return {
+            const data = {
                 brand_color: 'E97624',
                 client: {
                     name: document.getElementById('client-name').value,
@@ -1748,6 +1772,10 @@
                 recommendations: recommendations,
                 competitors: competitors
             };
+            if (comparisonData) {
+                data.comparison_data = comparisonData;
+            }
+            return data;
         }
 
         // Update preview (debounced)
@@ -2231,9 +2259,19 @@
 
                 showSaveIndicator('Loaded');
 
+                // Show re-audit button when viewing a saved audit
+                document.getElementById('btn-reaudit-main').style.display = 'inline-block';
+
             } catch (err) {
                 alert('Error loading audit: ' + err.message);
             }
+        }
+
+        async function startReauditFromLoaded() {
+            if (!currentAuditId) return;
+            await startReaudit(currentAuditId);
+            // Automatically run the audit after setup
+            runAudit();
         }
 
         function startNewAudit() {
@@ -2245,6 +2283,9 @@
             reauditFromId = null;
             comparisonData = null;
             hideComparisonPanel();
+
+            // Hide re-audit button for new audits
+            document.getElementById('btn-reaudit-main').style.display = 'none';
 
             // Clear client fields
             document.getElementById('client-name').value = '';
@@ -2370,6 +2411,9 @@
                 currentAuditId = null;  // Force save as NEW audit
                 comparisonData = null;
                 hideComparisonPanel();
+
+                // Hide re-audit button (we're now in re-audit mode, show Run Audit instead)
+                document.getElementById('btn-reaudit-main').style.display = 'none';
 
                 // Restore client info
                 const client = fd.client || {};
