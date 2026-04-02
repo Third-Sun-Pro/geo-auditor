@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 
-from config import openai_client, anthropic_client, gemini_model, perplexity_client, any_api_configured
+from config import openai_client, anthropic_client, gemini_client, perplexity_client, any_api_configured
 from database import get_audit
 from services import run_full_audit, run_competitor_audit, generate_faqs, revise_faqs, build_faq_context
 from scraper import scrape_website, analyze_website_with_ai, generate_from_intake
@@ -202,5 +202,5 @@ def check_api_keys():
         "openai": bool(openai_client),
         "anthropic": bool(anthropic_client),
         "perplexity": bool(perplexity_client),
-        "google": bool(gemini_model)
+        "google": bool(gemini_client)
     })

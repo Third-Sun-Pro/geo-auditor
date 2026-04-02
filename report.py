@@ -129,6 +129,102 @@ def _reaudit_executive_context(prev_pct, cur_pct, pct_change, queries_improved, 
     return f"{progress_line} {movement_line}"
 
 
+def _build_context_badges(details):
+    """Build compact HTML badges summarizing position and sentiment across platforms."""
+    if not details:
+        return ""
+
+    positions = []
+    sentiments = []
+    for platform in ['chatgpt', 'claude', 'gemini', 'perplexity']:
+        pdata = details.get(platform, {})
+        pos = pdata.get('position')
+        sentiment = pdata.get('sentiment')
+        if pos is not None:
+            list_size = pdata.get('list_size')
+            positions.append((platform, pos, list_size))
+        if sentiment is not None:
+            sentiments.append(sentiment)
+
+    badges = []
+
+    # Position badge — show best position across platforms
+    if positions:
+        best = min(positions, key=lambda x: x[1])
+        pos_num, list_size = best[1], best[2]
+        if pos_num == 1:
+            badges.append('<span style="background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:3px;font-size:7.5pt;font-weight:600;">#1 pick</span>')
+        elif pos_num <= 3:
+            size_str = f"/{list_size}" if list_size else ""
+            badges.append(f'<span style="background:#e0f2fe;color:#0c4a6e;padding:1px 6px;border-radius:3px;font-size:7.5pt;">#{pos_num}{size_str}</span>')
+        else:
+            size_str = f"/{list_size}" if list_size else ""
+            badges.append(f'<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:3px;font-size:7.5pt;">#{pos_num}{size_str}</span>')
+
+    # Sentiment badge — show dominant sentiment
+    if sentiments:
+        from collections import Counter
+        sentiment_counts = Counter(sentiments)
+        dominant = sentiment_counts.most_common(1)[0][0]
+        sentiment_styles = {
+            "recommended": ("Recommended", "#d1fae5", "#065f46"),
+            "positive": ("Positive", "#e0f2fe", "#0c4a6e"),
+            "neutral": ("Neutral", "#f3f4f6", "#4b5563"),
+            "qualified": ("Mixed", "#fef3c7", "#92400e"),
+        }
+        label, bg, color = sentiment_styles.get(dominant, ("", "#f3f4f6", "#4b5563"))
+        if label:
+            badges.append(f'<span style="background:{bg};color:{color};padding:1px 6px;border-radius:3px;font-size:7.5pt;">{label}</span>')
+
+    if not badges:
+        return ""
+    return '<div style="margin-top:3px;">' + " ".join(badges) + "</div>"
+
+
+def _build_rec_tracking_html(comparison):
+    """Build HTML for the previous recommendation tracking section."""
+    tracking = comparison.get("recommendation_tracking", [])
+    if not tracking:
+        return ""
+
+    status_styles = {
+        "improved": {"icon": "&#10003;", "color": "#1E8449", "bg": "#f0fdf4", "border": "#86efac", "label": "Improved"},
+        "strong": {"icon": "&#10003;", "color": "#1E8449", "bg": "#f0fdf4", "border": "#86efac", "label": "Scoring Well"},
+        "no_change": {"icon": "&#9644;", "color": "#92650A", "bg": "#fffbeb", "border": "#fcd34d", "label": "No Change"},
+        "declined": {"icon": "&#9660;", "color": "#922B21", "bg": "#fef2f2", "border": "#fca5a5", "label": "Declined"},
+        "unmatched": {"icon": "&#8226;", "color": "#6b7280", "bg": "#f9fafb", "border": "#d1d5db", "label": "General"},
+    }
+
+    rec_items_html = ""
+    for rec in tracking:
+        status = rec.get("status", "unmatched")
+        style = status_styles.get(status, status_styles["unmatched"])
+        matched = rec.get("matched_queries", [])
+        queries_html = ""
+        if matched:
+            query_list = ", ".join(f'"{q}"' for q in matched[:3])
+            queries_html = f'<div style="font-size: 8pt; color: #888; margin-top: 6px;">Related queries: {query_list}</div>'
+
+        rec_items_html += f"""
+            <div style="background: {style['bg']}; border: 1px solid {style['border']}; border-radius: 10px; padding: 16px 20px; page-break-inside: avoid;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-weight: 600; font-size: 11pt; color: #333;">{rec.get('title', '')}</span>
+                    <span style="font-size: 10pt; font-weight: 600; color: {style['color']};">{style['icon']} {style['label']}</span>
+                </div>
+                <div style="font-size: 9pt; color: #555;">{rec.get('detail', '')}</div>
+                {queries_html}
+            </div>
+        """
+
+    return f"""
+    <h3 style="color: #333; font-size: 13pt; margin: 30px 0 15px 0;">Previous Recommendation Status</h3>
+    <p style="font-size: 9pt; color: #888; margin-bottom: 15px;">How the recommendations from the last audit have played out</p>
+    <div style="display: grid; gap: 12px; margin-bottom: 30px;">
+        {rec_items_html}
+    </div>
+    """
+
+
 def generate_report_html(data):
     """Generate the HTML report from form data."""
 
@@ -176,6 +272,9 @@ def generate_report_html(data):
             else:
                 change_cell = '<td style="text-align: center; color: #888; font-size: 8pt;">new</td>'
 
+        # Build context badges (position + sentiment) from per-platform details
+        context_badges = _build_context_badges(details)
+
         if has_details:
             chatgpt_cell = _platform_score_cell(details.get('chatgpt', {}).get('score', 0))
             claude_cell = _platform_score_cell(details.get('claude', {}).get('score', 0))
@@ -189,7 +288,7 @@ def generate_report_html(data):
                 {chatgpt_cell}{claude_cell}{gemini_cell}{perplexity_cell}
                 <td class="{score_class}">{score}/12</td>
                 {change_cell}
-                <td>{icon} {q.get('finding', '')}</td>
+                <td>{icon} {q.get('finding', '')}{context_badges}</td>
             </tr>"""
         else:
             query_rows += f"""
@@ -199,7 +298,7 @@ def generate_report_html(data):
                 <td>{q.get('type', '')}</td>
                 <td class="{score_class}">{score}/12</td>
                 {change_cell}
-                <td>{icon} {q.get('finding', '')}</td>
+                <td>{icon} {q.get('finding', '')}{context_badges}</td>
             </tr>"""
 
     # Build query table header (conditional on per-platform details and re-audit)
@@ -465,6 +564,8 @@ def generate_report_html(data):
     </div>
 
     <!-- Query-by-query detail is shown in the Detailed Query Results table with +/- column -->
+
+    {_build_rec_tracking_html(comparison)}
         """
 
     # Build sections that are excluded from re-audits
@@ -1137,15 +1238,15 @@ def generate_report_html(data):
         <div class="legend-grid">
             <div class="legend-item">
                 <div class="legend-dot" style="background: #D5F5E3; border: 1px solid #1E8449;"></div>
-                <span><strong>3 pts</strong> — URL cited directly in the response</span>
+                <span><strong>3 pts</strong> — Named, cited, and featured prominently</span>
             </div>
             <div class="legend-item">
                 <div class="legend-dot" style="background: #E8F8F5; border: 1px solid #1E8449;"></div>
-                <span><strong>2 pts</strong> — Business mentioned by name</span>
+                <span><strong>2 pts</strong> — Named in the response</span>
             </div>
             <div class="legend-item">
                 <div class="legend-dot" style="background: #FEF9E7; border: 1px solid #9A7D0A;"></div>
-                <span><strong>1 pt</strong> — Industry/category mentioned, not the business</span>
+                <span><strong>1 pt</strong> — Partially referenced or domain mentioned</span>
             </div>
             <div class="legend-item">
                 <div class="legend-dot" style="background: #FDEDEC; border: 1px solid #922B21;"></div>

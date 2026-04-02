@@ -80,3 +80,127 @@ def test_visibility_percentage_extracted_from_queries(app):
     audit = [a for a in audits if a["client_name"] == "Calc Test"][0]
     # 12 / 24 = 50.0%
     assert audit["visibility_percentage"] == 50.0
+
+
+# ---------------------------------------------------------------------------
+# Recommendation tracking tests
+# ---------------------------------------------------------------------------
+
+from database import _track_recommendations
+
+
+def test_track_recommendations_improved():
+    """Recommendation with improved related queries should show 'improved'."""
+    prev_recs = [{
+        "title": "Boost Local Visibility",
+        "priority": "high",
+        "issue": 'Not appearing for "best coffee shops for remote work in Salt Lake City"',
+        "actions": ["Create a page about remote work"],
+    }]
+    query_changes = [{
+        "query": "best coffee shops for remote work in Salt Lake City",
+        "type": "Local",
+        "previous_score": 4,
+        "current_score": 8,
+        "change": 4,
+    }]
+    current_queries = [{"query": "best coffee shops for remote work in Salt Lake City", "score": 8}]
+
+    tracking = _track_recommendations(prev_recs, query_changes, current_queries)
+    assert len(tracking) == 1
+    assert tracking[0]["status"] == "improved"
+    assert len(tracking[0]["matched_queries"]) == 1
+
+
+def test_track_recommendations_declined():
+    """Recommendation with declined related queries should show 'declined'."""
+    prev_recs = [{
+        "title": "Improve Breakfast Presence",
+        "priority": "medium",
+        "issue": 'Not appearing for "breakfast and lunch spots near Downtown Salt Lake City"',
+        "actions": ["Add menu pages"],
+    }]
+    query_changes = [{
+        "query": "breakfast and lunch spots near Downtown Salt Lake City",
+        "type": "Local",
+        "previous_score": 4,
+        "current_score": 0,
+        "change": -4,
+    }]
+    current_queries = [{"query": "breakfast and lunch spots near Downtown Salt Lake City", "score": 0}]
+
+    tracking = _track_recommendations(prev_recs, query_changes, current_queries)
+    assert len(tracking) == 1
+    assert tracking[0]["status"] == "declined"
+
+
+def test_track_recommendations_no_change():
+    """Recommendation with unchanged low-scoring queries should show 'no_change'."""
+    prev_recs = [{
+        "title": "Create Educational Content",
+        "priority": "high",
+        "issue": 'Not appearing for "what is small batch coffee roasting?"',
+        "actions": ["Write a blog post"],
+    }]
+    query_changes = [{
+        "query": "what is small batch coffee roasting?",
+        "type": "Local",
+        "previous_score": 0,
+        "current_score": 0,
+        "change": 0,
+    }]
+    current_queries = [{"query": "what is small batch coffee roasting?", "score": 0}]
+
+    tracking = _track_recommendations(prev_recs, query_changes, current_queries)
+    assert len(tracking) == 1
+    assert tracking[0]["status"] == "no_change"
+
+
+def test_track_recommendations_unmatched():
+    """Recommendation not referencing specific queries should be 'unmatched'."""
+    prev_recs = [{
+        "title": "Build Social Media Presence",
+        "priority": "low",
+        "issue": "General brand awareness is low across all platforms",
+        "actions": ["Post weekly on Instagram"],
+    }]
+    query_changes = [{
+        "query": "best coffee Salt Lake City",
+        "type": "Local",
+        "previous_score": 4,
+        "current_score": 6,
+        "change": 2,
+    }]
+    current_queries = [{"query": "best coffee Salt Lake City", "score": 6}]
+
+    tracking = _track_recommendations(prev_recs, query_changes, current_queries)
+    assert len(tracking) == 1
+    assert tracking[0]["status"] == "unmatched"
+
+
+def test_track_recommendations_empty():
+    """No previous recommendations should return empty list."""
+    assert _track_recommendations([], [], []) == []
+    assert _track_recommendations(None, [], []) == []
+
+
+def test_track_recommendations_strong():
+    """Recommendation with unchanged high-scoring queries should show 'strong'."""
+    prev_recs = [{
+        "title": "Maintain Brand Presence",
+        "priority": "low",
+        "issue": 'Keep strong presence for "Publik Coffee Roasters organic small batch coffee Salt Lake City"',
+        "actions": ["Keep content updated"],
+    }]
+    query_changes = [{
+        "query": "Publik Coffee Roasters organic small batch coffee Salt Lake City",
+        "type": "Brand",
+        "previous_score": 10,
+        "current_score": 10,
+        "change": 0,
+    }]
+    current_queries = [{"query": "Publik Coffee Roasters organic small batch coffee Salt Lake City", "score": 10}]
+
+    tracking = _track_recommendations(prev_recs, query_changes, current_queries)
+    assert len(tracking) == 1
+    assert tracking[0]["status"] == "strong"

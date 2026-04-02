@@ -5,7 +5,7 @@ import base64
 from dotenv import load_dotenv
 from openai import OpenAI
 import anthropic
-import google.generativeai as genai
+from google import genai
 
 load_dotenv()
 
@@ -22,7 +22,7 @@ PERPLEXITY_MODEL = "sonar"
 # ---------------------------------------------------------------------------
 openai_client = None
 anthropic_client = None
-gemini_model = None
+gemini_client = None
 perplexity_client = None
 
 if os.getenv('OPENAI_API_KEY'):
@@ -32,8 +32,7 @@ if os.getenv('ANTHROPIC_API_KEY'):
     anthropic_client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
 
 if os.getenv('GOOGLE_API_KEY'):
-    genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
-    gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+    gemini_client = genai.Client(api_key=os.getenv('GOOGLE_API_KEY'))
 
 if os.getenv('PERPLEXITY_API_KEY'):
     perplexity_client = OpenAI(
@@ -61,4 +60,4 @@ def get_logo_base64():
 
 def any_api_configured():
     """Return True if at least one LLM API is available."""
-    return bool(openai_client or anthropic_client or gemini_model or perplexity_client)
+    return bool(openai_client or anthropic_client or gemini_client or perplexity_client)

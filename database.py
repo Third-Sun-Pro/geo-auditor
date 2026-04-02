@@ -175,6 +175,83 @@ def get_audit(audit_id):
         db.close()
 
 
+def _track_recommendations(previous_recommendations, query_changes, current_queries):
+    """Evaluate whether previous recommendations were addressed.
+
+    Matches each recommendation's referenced queries (from its 'issue' field)
+    against current query scores to determine status:
+    - 'improved': related queries improved
+    - 'no_change': related queries stayed the same
+    - 'declined': related queries got worse
+    - 'unmatched': couldn't match to specific queries (general recommendation)
+    """
+    if not previous_recommendations:
+        return []
+
+    # Build lookup from query text to its change data
+    change_by_query = {}
+    for qc in query_changes:
+        change_by_query[qc.get("query", "").lower()] = qc
+
+    # Also index current query scores for absolute-level checks
+    current_by_query = {}
+    for q in current_queries:
+        current_by_query[q.get("query", "").lower()] = q
+
+    tracking = []
+    for rec in previous_recommendations:
+        issue_text = rec.get("issue", "").lower()
+        title = rec.get("title", "")
+        priority = rec.get("priority", "medium")
+        actions = rec.get("actions", [])
+
+        # Find queries referenced in the issue text
+        matched_queries = []
+        for query_text, qc in change_by_query.items():
+            # Check if the query (or a significant portion) appears in the issue
+            # Use a substring match — queries are typically quoted in the issue text
+            query_words = [w for w in query_text.split() if len(w) > 3]
+            if not query_words:
+                continue
+            # Count how many significant words from the query appear in the issue
+            matches = sum(1 for w in query_words if w in issue_text)
+            if matches >= min(3, len(query_words)):
+                matched_queries.append(qc)
+
+        # Determine status from matched queries
+        if not matched_queries:
+            status = "unmatched"
+            detail = "General recommendation — not tied to specific queries"
+        else:
+            total_change = sum(q.get("change", 0) for q in matched_queries)
+            current_scores = [q.get("current_score", 0) for q in matched_queries]
+            avg_current = sum(current_scores) / len(current_scores) if current_scores else 0
+
+            if total_change > 0:
+                status = "improved"
+                detail = f"Related queries improved by {total_change} points total"
+            elif total_change < 0:
+                status = "declined"
+                detail = f"Related queries declined by {abs(total_change)} points"
+            elif avg_current >= 8:
+                status = "strong"
+                detail = "Related queries scoring well (avg {:.0f}/12)".format(avg_current)
+            else:
+                status = "no_change"
+                detail = "Related queries unchanged — may need more time or different approach"
+
+        tracking.append({
+            "title": title,
+            "priority": priority,
+            "actions": actions,
+            "status": status,
+            "detail": detail,
+            "matched_queries": [q.get("query", "") for q in matched_queries],
+        })
+
+    return tracking
+
+
 def get_comparison(current_id, previous_id):
     """Compare two audits and return the delta."""
     current = get_audit(current_id)
@@ -234,6 +311,13 @@ def get_comparison(current_id, previous_id):
     # Sort: biggest improvements first, then biggest declines
     query_changes.sort(key=lambda x: x["change"], reverse=True)
 
+    # Track previous recommendations against current results
+    recommendation_tracking = _track_recommendations(
+        prev_fd.get("recommendations", []),
+        query_changes,
+        cur_queries,
+    )
+
     return {
         "previous_audit_date": prev_fd.get("client", {}).get("audit_date", ""),
         "current_audit_date": cur_fd.get("client", {}).get("audit_date", ""),
@@ -247,6 +331,7 @@ def get_comparison(current_id, previous_id):
         "queries_improved": len([q for q in query_changes if q["change"] > 0]),
         "queries_declined": len([q for q in query_changes if q["change"] < 0]),
         "queries_unchanged": len([q for q in query_changes if q["change"] == 0]),
+        "recommendation_tracking": recommendation_tracking,
     }
 
 

@@ -4,7 +4,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import (
-    openai_client, anthropic_client, gemini_model, perplexity_client,
+    openai_client, anthropic_client, gemini_client, perplexity_client,
     CHATGPT_MODEL, CLAUDE_MODEL,
 )
 from llm import query_platform
@@ -33,7 +33,7 @@ def run_full_audit(client_name, client_website, queries, package_type="basic",
     print(f"[AUDIT] Starting audit for: {client_name}")
     print(f"[AUDIT] Website: {client_website}")
     print(f"[AUDIT] Number of queries: {len(queries)}")
-    print(f"[AUDIT] APIs available - OpenAI: {bool(openai_client)}, Anthropic: {bool(anthropic_client)}, Gemini: {bool(gemini_model)}, Perplexity: {bool(perplexity_client)}")
+    print(f"[AUDIT] APIs available - OpenAI: {bool(openai_client)}, Anthropic: {bool(anthropic_client)}, Gemini: {bool(gemini_client)}, Perplexity: {bool(perplexity_client)}")
     print("=" * 50)
 
     results = []
@@ -158,7 +158,7 @@ def _platform_note(platform):
     notes = {
         "chatgpt": "OpenAI GPT-4o-mini" if openai_client else "Not configured",
         "claude": "Anthropic Claude Haiku" if anthropic_client else "Not configured",
-        "gemini": "Google Gemini Flash" if gemini_model else "Not configured",
+        "gemini": "Google Gemini Flash" if gemini_client else "Not configured",
         "perplexity": "Perplexity Sonar" if perplexity_client else "Not configured",
     }
     return notes.get(platform, "Unknown")
