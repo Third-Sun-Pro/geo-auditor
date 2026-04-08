@@ -53,6 +53,17 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Implementation Workbook — one row per audit, JSON-blob state.
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS workbooks (
+            audit_id INTEGER PRIMARY KEY,
+            state TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (audit_id) REFERENCES audits(id) ON DELETE CASCADE
+        )
+    ''')
+
     db.commit()
     db.close()
 
@@ -380,7 +391,80 @@ def delete_audit(audit_id):
     """Delete an audit. Returns True if deleted, False if not found."""
     db = get_db()
     try:
+        # Manually clean up the workbook — sqlite3 doesn't enforce ON DELETE CASCADE
+        # unless PRAGMA foreign_keys is on, and we don't enable it elsewhere.
+        db.execute('DELETE FROM workbooks WHERE audit_id = ?', (audit_id,))
         result = db.execute('DELETE FROM audits WHERE id = ?', (audit_id,))
+        db.commit()
+        return result.rowcount > 0
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Workbook CRUD
+# ---------------------------------------------------------------------------
+
+def get_workbook(audit_id):
+    """Return the stored workbook state for an audit, or None if not found."""
+    db = get_db()
+    try:
+        row = db.execute(
+            'SELECT state, created_at, updated_at FROM workbooks WHERE audit_id = ?',
+            (audit_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "audit_id": audit_id,
+            "state": json.loads(row["state"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+    finally:
+        db.close()
+
+
+def save_workbook(audit_id, state):
+    """Insert or update a workbook for an audit. Returns the audit_id."""
+    if not isinstance(state, dict):
+        raise ValueError("Workbook state must be a dict")
+
+    # Verify the audit actually exists — avoids orphan workbooks.
+    db = get_db()
+    try:
+        audit_row = db.execute(
+            'SELECT id FROM audits WHERE id = ?', (audit_id,)
+        ).fetchone()
+        if not audit_row:
+            raise ValueError(f"Audit {audit_id} does not exist")
+
+        existing = db.execute(
+            'SELECT audit_id FROM workbooks WHERE audit_id = ?', (audit_id,)
+        ).fetchone()
+
+        state_json = json.dumps(state)
+        if existing:
+            db.execute(
+                "UPDATE workbooks SET state = ?, updated_at = datetime('now') WHERE audit_id = ?",
+                (state_json, audit_id)
+            )
+        else:
+            db.execute(
+                'INSERT INTO workbooks (audit_id, state) VALUES (?, ?)',
+                (audit_id, state_json)
+            )
+        db.commit()
+        return audit_id
+    finally:
+        db.close()
+
+
+def delete_workbook(audit_id):
+    """Delete a workbook. Returns True if deleted, False if not found."""
+    db = get_db()
+    try:
+        result = db.execute('DELETE FROM workbooks WHERE audit_id = ?', (audit_id,))
         db.commit()
         return result.rowcount > 0
     finally:

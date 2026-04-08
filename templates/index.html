@@ -95,6 +95,25 @@
             transition: all 0.2s ease;
         }
 
+        .btn-back-history {
+            background: white;
+            color: #555;
+            border: 1px solid #d0d0d0;
+            padding: 12px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            margin-right: 10px;
+            transition: all 0.15s ease;
+        }
+
+        .btn-back-history:hover {
+            border-color: var(--orange-primary);
+            color: var(--orange-primary);
+            background: var(--cream-bg);
+        }
+
         .btn-run-audit:hover {
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(233, 118, 36, 0.3);
@@ -171,21 +190,23 @@
         /* Tabs */
         .tabs {
             display: flex;
-            gap: 5px;
+            flex-wrap: wrap;
+            gap: 4px 5px;
             margin-bottom: 20px;
             border-bottom: 2px solid #eee;
             padding-bottom: 0;
         }
 
         .tab {
-            padding: 12px 20px;
+            padding: 10px 14px;
             border: none;
             background: transparent;
             cursor: pointer;
             border-radius: 8px 8px 0 0;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             color: #666;
+            white-space: nowrap;
             border-bottom: 3px solid transparent;
             margin-bottom: -2px;
             transition: all 0.2s ease;
@@ -209,6 +230,245 @@
 
         .tab-content.active {
             display: block;
+        }
+
+        /* ===== Implementation Workbook ===== */
+        .workbook-empty {
+            background: var(--cream-bg);
+            border-left: 4px solid var(--orange-primary);
+            padding: 24px 28px;
+            border-radius: 10px;
+            color: #555;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .workbook-empty h3 {
+            color: var(--orange-primary);
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .workbook-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+        .workbook-progress {
+            font-size: 12px;
+            color: #777;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+        .workbook-layout {
+            display: grid;
+            grid-template-columns: 1fr 240px;
+            gap: 24px;
+            align-items: start;
+        }
+        .workbook-checklist {
+            min-width: 0;
+        }
+        .workbook-phase-title {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--orange-primary);
+            font-weight: 700;
+            margin: 24px 0 6px 0;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #eee;
+        }
+        .workbook-phase-title:first-child {
+            margin-top: 0;
+        }
+        .workbook-phase-note {
+            font-size: 12px;
+            color: #888;
+            font-style: italic;
+            margin-bottom: 10px;
+        }
+        .wb-item {
+            border: 1px solid #e5e5e5;
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            background: #fff;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .wb-item.wb-done {
+            border-color: #c8e6c9;
+            background: #f8fcf8;
+        }
+        .wb-item-check {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            color: #222;
+        }
+        .wb-item-check input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: var(--orange-primary);
+        }
+        .wb-item.wb-done .wb-item-check {
+            color: #2e7d32;
+        }
+        .wb-item-desc {
+            color: #777;
+            font-size: 12px;
+            margin: 6px 0 10px 28px;
+            line-height: 1.5;
+        }
+        .wb-item-fields {
+            margin-left: 28px;
+        }
+        .wb-item-fields textarea,
+        .wb-item-fields input[type="text"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 13px;
+            resize: vertical;
+        }
+        .wb-item-fields textarea {
+            min-height: 50px;
+            margin-bottom: 8px;
+        }
+        .wb-item-fields input[type="text"] {
+            margin-bottom: 8px;
+            max-width: 280px;
+        }
+        .wb-screenshots {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .wb-screenshot {
+            position: relative;
+            width: 96px;
+            height: 96px;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #ddd;
+            background: #fafafa;
+        }
+        .wb-screenshot img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .wb-screenshot-remove {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+        .wb-screenshot-remove:hover {
+            background: rgba(220, 53, 69, 0.9);
+        }
+        .wb-dropzone {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .wb-dropzone:hover,
+        .wb-dropzone.dragover {
+            border-color: var(--orange-primary);
+            background: var(--cream-bg);
+            color: var(--orange-primary);
+        }
+        .wb-dropzone a {
+            color: var(--orange-primary);
+            text-decoration: underline;
+        }
+        .workbook-sidebar {
+            background: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 10px;
+            padding: 16px;
+            position: sticky;
+            top: 20px;
+            max-height: calc(100vh - 60px);
+            overflow-y: auto;
+        }
+        .workbook-sidebar h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--orange-primary);
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+        .workbook-sidebar-note {
+            font-size: 11px;
+            color: #888;
+            line-height: 1.5;
+            margin-bottom: 14px;
+        }
+        .wb-rec {
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .wb-rec:last-child { border-bottom: none; }
+        .wb-rec-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: #222;
+            margin-bottom: 4px;
+        }
+        .wb-rec-priority {
+            display: inline-block;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .wb-rec-high { background: #fee; color: #c33; }
+        .wb-rec-medium { background: #fff3cd; color: #8a6300; }
+        .wb-rec-low { background: #e8f5e9; color: #2e7d32; }
+        .wb-rec-issue {
+            font-size: 11px;
+            color: #666;
+            line-height: 1.4;
+        }
+        @media (max-width: 1100px) {
+            .workbook-layout {
+                grid-template-columns: 1fr;
+            }
+            .workbook-sidebar {
+                position: static;
+                max-height: none;
+            }
         }
 
         /* Form Elements */
@@ -483,6 +743,7 @@
                 </div>
             </div>
             <div style="margin-bottom: 15px;">
+                <button class="btn-back-history" onclick="goToHistory()" title="Go to the audit history list">&larr; All Audits</button>
                 <button class="btn-run-audit" onclick="runAudit()">Run Audit</button>
                 <button id="btn-reaudit-main" class="btn-reaudit" onclick="startReauditFromLoaded()">&#x21bb; Run Re-Audit</button>
                 <button class="btn-download" onclick="saveAudit(false)" style="background: #6c757d;">Save</button>
@@ -510,6 +771,7 @@
                 <button class="tab" onclick="showTab('recommendations')">Recommendations</button>
                 <button class="tab" onclick="showTab('competitors')">Competitors</button>
                 <button class="tab" onclick="showTab('faqs')">FAQs</button>
+                <button class="tab" onclick="showTab('workbook')">Workbook</button>
                 <button class="tab" onclick="showTab('history')">History</button>
             </div>
 
@@ -741,6 +1003,45 @@
                 </div>
             </div>
 
+            <!-- Workbook Tab -->
+            <div id="tab-workbook" class="tab-content">
+                <div id="workbook-empty" class="workbook-empty">
+                    <h3>Implementation Workbook</h3>
+                    <p>The workbook is where you track the post-audit work Third Sun does on a client's website &mdash; with notes and screenshots for each item &mdash; and generate a client-facing summary of what was done.</p>
+                    <p style="margin-top: 10px;"><strong>Save this audit first</strong> (or load an existing one from the History tab) to start a workbook for it.</p>
+                </div>
+
+                <div id="workbook-main" style="display: none;">
+                    <div class="workbook-header">
+                        <div>
+                            <div class="section-header" style="margin: 0;">Implementation Workbook</div>
+                            <div class="workbook-progress" id="workbook-progress">0 of 0 items completed</div>
+                        </div>
+                        <button class="btn-download" onclick="openWorkbookReport()">Open Client Report</button>
+                    </div>
+
+                    <div class="workbook-layout">
+                        <div class="workbook-checklist">
+                            <h3 class="workbook-phase-title">Technical Foundation</h3>
+                            <div id="wb-phase-technical"></div>
+
+                            <h3 class="workbook-phase-title">Content Optimization</h3>
+                            <div id="wb-phase-content"></div>
+
+                            <h3 class="workbook-phase-title">Client Handoff</h3>
+                            <p class="workbook-phase-note">These items get handed to the client &mdash; we don't execute them ourselves, but they show up in the client report as recommendations.</p>
+                            <div id="wb-phase-client"></div>
+                        </div>
+
+                        <aside class="workbook-sidebar">
+                            <h4>From this audit</h4>
+                            <p class="workbook-sidebar-note">Recommendations generated from this audit, for cross-reference as you work through the checklist.</p>
+                            <div id="wb-audit-recs"></div>
+                        </aside>
+                    </div>
+                </div>
+            </div>
+
             <!-- History Tab -->
             <div id="tab-history" class="tab-content">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -765,6 +1066,11 @@
         let currentAuditId = null;
         let reauditFromId = null;   // Set when re-auditing; links new audit to previous
         let comparisonData = null;  // Holds comparison results after a re-audit
+
+        // Implementation Workbook state
+        let workbookState = null;       // {items: {item_id: {status, notes, ...}}}
+        let workbookChecklist = null;   // master checklist from server
+        let workbookSaveTimer = null;   // debounce handle
 
         // Data storage
         let queries = [];
@@ -1499,6 +1805,9 @@
 
             if (tabName === 'history') {
                 loadAuditHistory();
+            }
+            if (tabName === 'workbook') {
+                loadWorkbook();
             }
         }
 
@@ -2262,6 +2571,10 @@
                 // Show re-audit button when viewing a saved audit
                 document.getElementById('btn-reaudit-main').style.display = 'inline-block';
 
+                // Reset workbook state — it'll be re-fetched next time the tab is opened
+                workbookState = null;
+                workbookChecklist = null;
+
             } catch (err) {
                 alert('Error loading audit: ' + err.message);
             }
@@ -2274,6 +2587,21 @@
             runAudit();
         }
 
+        // Switch to the History tab without clearing the current form (non-destructive
+        // "back to all audits" affordance — clicking a different audit will load it,
+        // or + New Audit will start fresh).
+        function goToHistory() {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            // Find the History tab button by its onclick attribute and mark it active
+            const historyTabBtn = Array.from(document.querySelectorAll('.tab')).find(
+                b => b.getAttribute('onclick') === "showTab('history')"
+            );
+            if (historyTabBtn) historyTabBtn.classList.add('active');
+            document.getElementById('tab-history').classList.add('active');
+            loadAuditHistory();
+        }
+
         function startNewAudit() {
             if (currentAuditId && !confirm('Start a new audit? Make sure your current audit is saved.')) {
                 return;
@@ -2282,6 +2610,8 @@
             currentAuditId = null;
             reauditFromId = null;
             comparisonData = null;
+            workbookState = null;
+            workbookChecklist = null;
             hideComparisonPanel();
 
             // Hide re-audit button for new audits
@@ -2541,6 +2871,217 @@
         function hideComparisonPanel() {
             document.getElementById('comparison-panel').style.display = 'none';
             comparisonData = null;
+        }
+
+        // ===== Implementation Workbook =====
+
+        function wbEscapeHtml(s) {
+            const div = document.createElement('div');
+            div.textContent = s == null ? '' : String(s);
+            return div.innerHTML;
+        }
+
+        async function loadWorkbook() {
+            const emptyEl = document.getElementById('workbook-empty');
+            const mainEl = document.getElementById('workbook-main');
+
+            if (!currentAuditId) {
+                emptyEl.style.display = 'block';
+                mainEl.style.display = 'none';
+                return;
+            }
+            emptyEl.style.display = 'none';
+            mainEl.style.display = 'block';
+
+            try {
+                const res = await fetch('/audits/' + currentAuditId + '/workbook');
+                if (!res.ok) {
+                    throw new Error('HTTP ' + res.status);
+                }
+                const data = await res.json();
+                workbookState = data.state;
+                workbookChecklist = data.checklist;
+                renderWorkbook();
+                renderWorkbookSidebar();
+                updateWorkbookProgress();
+            } catch (err) {
+                mainEl.innerHTML = '<p style="color: #dc3545;">Error loading workbook: ' + wbEscapeHtml(err.message) + '</p>';
+            }
+        }
+
+        function renderWorkbook() {
+            if (!workbookChecklist || !workbookState) return;
+
+            ['technical', 'content', 'client'].forEach(phase => {
+                const items = workbookChecklist.filter(i => i.phase === phase);
+                const container = document.getElementById('wb-phase-' + phase);
+                container.innerHTML = items.map(renderWorkbookItem).join('');
+            });
+        }
+
+        function renderWorkbookItem(item) {
+            const state = (workbookState.items && workbookState.items[item.id]) || {};
+            const isDone = state.status === 'done';
+            const screenshots = state.screenshots || [];
+
+            const screenshotsHtml = screenshots.map(name => `
+                <div class="wb-screenshot">
+                    <img src="/audits/${currentAuditId}/workbook/screenshot/${encodeURIComponent(item.id)}/${encodeURIComponent(name)}" alt="">
+                    <button class="wb-screenshot-remove" onclick="removeWorkbookScreenshot('${item.id}', '${name.replace(/'/g, "\\'")}')" title="Remove">&times;</button>
+                </div>
+            `).join('');
+
+            return `
+            <div class="wb-item ${isDone ? 'wb-done' : ''}" data-item-id="${item.id}">
+                <label class="wb-item-check">
+                    <input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleWorkbookItem('${item.id}', this.checked)">
+                    <span>${wbEscapeHtml(item.title)}</span>
+                </label>
+                <div class="wb-item-desc">${wbEscapeHtml(item.description)}</div>
+                <div class="wb-item-fields">
+                    <textarea placeholder="Notes &mdash; what you did, how, anything worth telling the client" oninput="onWorkbookNotesInput('${item.id}', this.value)">${wbEscapeHtml(state.notes || '')}</textarea>
+                    <input type="text" placeholder="Completed by" value="${wbEscapeHtml(state.completed_by || '')}" oninput="onWorkbookCompletedByInput('${item.id}', this.value)">
+                    <div class="wb-screenshots">${screenshotsHtml}</div>
+                    <div class="wb-dropzone"
+                         ondragover="event.preventDefault(); this.classList.add('dragover');"
+                         ondragleave="this.classList.remove('dragover');"
+                         ondrop="handleWorkbookDrop(event, '${item.id}')"
+                         onclick="pickWorkbookFile('${item.id}')">
+                        Drop screenshots here, or click to choose
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        function renderWorkbookSidebar() {
+            const sidebar = document.getElementById('wb-audit-recs');
+            if (!recommendations || recommendations.length === 0) {
+                sidebar.innerHTML = '<p style="color: #999; font-size: 11px;"><em>No recommendations from this audit. Run the audit or add recommendations on the Recommendations tab.</em></p>';
+                return;
+            }
+            sidebar.innerHTML = recommendations.map(rec => `
+                <div class="wb-rec">
+                    <span class="wb-rec-priority wb-rec-${rec.priority || 'medium'}">${wbEscapeHtml(rec.priority || 'medium')}</span>
+                    <div class="wb-rec-title">${wbEscapeHtml(rec.title || '')}</div>
+                    <div class="wb-rec-issue">${wbEscapeHtml(rec.issue || '')}</div>
+                </div>
+            `).join('');
+        }
+
+        function updateWorkbookProgress() {
+            if (!workbookChecklist || !workbookState) return;
+            // Only count Third Sun items (technical + content), not client handoff
+            const tsItems = workbookChecklist.filter(i => i.phase !== 'client');
+            const done = tsItems.filter(i => {
+                const s = workbookState.items[i.id];
+                return s && s.status === 'done';
+            }).length;
+            document.getElementById('workbook-progress').textContent =
+                done + ' of ' + tsItems.length + ' items completed';
+        }
+
+        function toggleWorkbookItem(itemId, checked) {
+            if (!workbookState) return;
+            const item = workbookState.items[itemId] || (workbookState.items[itemId] = {});
+            item.status = checked ? 'done' : 'todo';
+            item.completed_at = checked ? new Date().toISOString() : null;
+            const el = document.querySelector('.wb-item[data-item-id="' + itemId + '"]');
+            if (el) el.classList.toggle('wb-done', checked);
+            updateWorkbookProgress();
+            saveWorkbookDebounced();
+        }
+
+        function onWorkbookNotesInput(itemId, value) {
+            if (!workbookState) return;
+            const item = workbookState.items[itemId] || (workbookState.items[itemId] = {});
+            item.notes = value;
+            saveWorkbookDebounced();
+        }
+
+        function onWorkbookCompletedByInput(itemId, value) {
+            if (!workbookState) return;
+            const item = workbookState.items[itemId] || (workbookState.items[itemId] = {});
+            item.completed_by = value;
+            saveWorkbookDebounced();
+        }
+
+        function saveWorkbookDebounced() {
+            clearTimeout(workbookSaveTimer);
+            workbookSaveTimer = setTimeout(saveWorkbookNow, 800);
+        }
+
+        async function saveWorkbookNow() {
+            if (!currentAuditId || !workbookState) return;
+            try {
+                await fetch('/audits/' + currentAuditId + '/workbook', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ state: workbookState })
+                });
+            } catch (err) {
+                console.error('Workbook save failed:', err);
+            }
+        }
+
+        async function handleWorkbookDrop(event, itemId) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('dragover');
+            const files = Array.from(event.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+            for (const file of files) {
+                await uploadWorkbookScreenshot(itemId, file);
+            }
+            await loadWorkbook();
+        }
+
+        function pickWorkbookFile(itemId) {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = async () => {
+                if (input.files && input.files[0]) {
+                    await uploadWorkbookScreenshot(itemId, input.files[0]);
+                    await loadWorkbook();
+                }
+            };
+            input.click();
+        }
+
+        async function uploadWorkbookScreenshot(itemId, file) {
+            const fd = new FormData();
+            fd.append('item_id', itemId);
+            fd.append('file', file);
+            try {
+                const res = await fetch('/audits/' + currentAuditId + '/workbook/screenshot', {
+                    method: 'POST',
+                    body: fd
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    alert('Upload failed: ' + (err.error || res.status));
+                }
+            } catch (err) {
+                alert('Upload failed: ' + err.message);
+            }
+        }
+
+        async function removeWorkbookScreenshot(itemId, filename) {
+            if (!confirm('Remove this screenshot?')) return;
+            try {
+                await fetch(
+                    '/audits/' + currentAuditId + '/workbook/screenshot/' +
+                    encodeURIComponent(itemId) + '/' + encodeURIComponent(filename),
+                    { method: 'DELETE' }
+                );
+                await loadWorkbook();
+            } catch (err) {
+                alert('Delete failed: ' + err.message);
+            }
+        }
+
+        function openWorkbookReport() {
+            if (!currentAuditId) return;
+            window.open('/audits/' + currentAuditId + '/workbook/report', '_blank');
         }
     </script>
 </body>

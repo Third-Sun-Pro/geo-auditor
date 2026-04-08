@@ -1,6 +1,9 @@
 """Report generation — HTML report builder for PDF export."""
 
+import html as _html
+
 from config import get_logo_base64
+import workbook as _wb
 
 
 def get_score_class(score):
@@ -1309,3 +1312,373 @@ def generate_report_html(data):
     """
 
     return html
+
+
+# ===========================================================================
+# Implementation Workbook deliverable
+# ===========================================================================
+
+def _esc(value):
+    """HTML-escape a value, treating None as empty."""
+    return _html.escape(str(value)) if value is not None else ""
+
+
+def _workbook_item_block(audit_id, item, item_state):
+    """Render a single completed checklist item with notes + screenshots."""
+    notes = item_state.get("notes", "").strip()
+    completed_by = item_state.get("completed_by", "").strip()
+    completed_at = item_state.get("completed_at") or ""
+    screenshots = item_state.get("screenshots", [])
+
+    notes_html = ""
+    if notes:
+        notes_html = (
+            f'<div class="wb-notes">{_esc(notes).replace(chr(10), "<br>")}</div>'
+        )
+
+    meta_parts = []
+    if completed_by:
+        meta_parts.append(f"Completed by {_esc(completed_by)}")
+    if completed_at:
+        meta_parts.append(_esc(completed_at))
+    meta_html = (
+        f'<div class="wb-meta">{" &middot; ".join(meta_parts)}</div>' if meta_parts else ""
+    )
+
+    screenshot_html = ""
+    if screenshots:
+        imgs = "".join(
+            f'<figure class="wb-screenshot">'
+            f'<img src="/audits/{audit_id}/workbook/screenshot/{_esc(item["id"])}/{_esc(name)}" alt="{_esc(item["title"])}">'
+            f'</figure>'
+            for name in screenshots
+        )
+        screenshot_html = f'<div class="wb-screenshots">{imgs}</div>'
+
+    return f"""
+    <div class="wb-item">
+        <div class="wb-item-header">
+            <span class="wb-check">&#10003;</span>
+            <h3>{_esc(item["title"])}</h3>
+        </div>
+        <p class="wb-description">{_esc(item["description"])}</p>
+        {notes_html}
+        {screenshot_html}
+        {meta_html}
+    </div>
+    """
+
+
+def _workbook_phase_section(audit_id, phase, state):
+    """Render the section for a phase, showing only completed items."""
+    items = _wb.items_for_phase(phase)
+    done_items = [
+        (item, state["items"].get(item["id"], {}))
+        for item in items
+        if state["items"].get(item["id"], {}).get("status") == "done"
+    ]
+
+    if not done_items:
+        return ""
+
+    blocks = "".join(
+        _workbook_item_block(audit_id, item, item_state) for item, item_state in done_items
+    )
+    return f"""
+    <section class="wb-phase">
+        <h2>{_esc(_wb.PHASE_LABELS[phase])}</h2>
+        <p class="wb-phase-summary">{len(done_items)} item{"s" if len(done_items) != 1 else ""} completed</p>
+        {blocks}
+    </section>
+    """
+
+
+def _workbook_client_handoff_section(state):
+    """Render the Phase 3 (client) section as recommendations for the client.
+
+    Unlike technical/content phases, this section shows ALL items regardless
+    of done status — these are things the client owns, not Third Sun.
+    """
+    items = _wb.items_for_phase("client")
+    if not items:
+        return ""
+
+    blocks = []
+    for item in items:
+        item_state = state["items"].get(item["id"], {})
+        notes = item_state.get("notes", "").strip()
+        notes_html = f'<p class="wb-handoff-notes">{_esc(notes)}</p>' if notes else ""
+        blocks.append(f"""
+        <div class="wb-handoff-item">
+            <h3>{_esc(item["title"])}</h3>
+            <p>{_esc(item["description"])}</p>
+            {notes_html}
+        </div>
+        """)
+
+    return f"""
+    <section class="wb-phase wb-handoff">
+        <h2>{_esc(_wb.PHASE_LABELS["client"])}</h2>
+        <p class="wb-phase-summary">
+            These items live outside the website itself. We recommend tackling them next
+            to amplify the technical and content work above.
+        </p>
+        {"".join(blocks)}
+    </section>
+    """
+
+
+def generate_workbook_report_html(audit, state):
+    """Render the implementation workbook deliverable as a printable HTML doc.
+
+    Args:
+        audit: dict from database.get_audit() (has id, form_data, etc.)
+        state: workbook state dict (from workbook.merge_with_master)
+    """
+    audit_id = audit["id"]
+    fd = audit.get("form_data", {})
+    client = fd.get("client", {})
+
+    client_name = _esc(client.get("name", "Client"))
+    audit_date = _esc(client.get("audit_date", ""))
+    website = _esc(client.get("website", ""))
+
+    # Count completed items across the technical/content phases
+    done_count = sum(
+        1
+        for item in _wb.MASTER_CHECKLIST
+        if item["phase"] in ("technical", "content")
+        and state["items"].get(item["id"], {}).get("status") == "done"
+    )
+    third_sun_total = sum(
+        1 for item in _wb.MASTER_CHECKLIST if item["phase"] in ("technical", "content")
+    )
+
+    technical_section = _workbook_phase_section(audit_id, "technical", state)
+    content_section = _workbook_phase_section(audit_id, "content", state)
+    handoff_section = _workbook_client_handoff_section(state)
+
+    if not technical_section and not content_section:
+        body_intro = (
+            '<p class="wb-empty">No completed items yet. Mark items as done in '
+            "the workbook to see them here.</p>"
+        )
+    else:
+        body_intro = ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Implementation Summary &middot; {client_name}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {{
+            --orange-primary: #E97624;
+            --orange-dark: #D56A1F;
+            --cream-bg: #FDF6F0;
+            --text: #333;
+            --muted: #777;
+            --border: #e5e5e5;
+        }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--text);
+            background: white;
+            line-height: 1.55;
+            padding: 40px 50px;
+            max-width: 850px;
+            margin: 0 auto;
+        }}
+        header.wb-header {{
+            border-bottom: 3px solid var(--orange-primary);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }}
+        header.wb-header .wb-eyebrow {{
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--orange-primary);
+            margin-bottom: 8px;
+        }}
+        header.wb-header h1 {{
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--orange-primary);
+            margin-bottom: 6px;
+        }}
+        header.wb-header .wb-subtitle {{
+            color: var(--muted);
+            font-size: 14px;
+        }}
+        .wb-summary {{
+            background: var(--cream-bg);
+            border-left: 4px solid var(--orange-primary);
+            padding: 18px 22px;
+            border-radius: 8px;
+            margin-bottom: 35px;
+            font-size: 14px;
+        }}
+        .wb-summary strong {{ color: var(--orange-primary); font-size: 18px; }}
+        section.wb-phase {{
+            margin-bottom: 40px;
+        }}
+        section.wb-phase h2 {{
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--orange-primary);
+            margin-bottom: 4px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }}
+        .wb-phase-summary {{
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 18px;
+            font-style: italic;
+        }}
+        .wb-item {{
+            margin-bottom: 24px;
+            padding: 18px 20px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #fff;
+            page-break-inside: avoid;
+        }}
+        .wb-item-header {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }}
+        .wb-check {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            background: var(--orange-primary);
+            color: white;
+            font-size: 12px;
+            font-weight: 700;
+        }}
+        .wb-item h3 {{
+            font-size: 15px;
+            font-weight: 600;
+            color: #222;
+        }}
+        .wb-description {{
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 10px;
+        }}
+        .wb-notes {{
+            background: var(--cream-bg);
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 13px;
+            color: #444;
+            margin-bottom: 12px;
+        }}
+        .wb-meta {{
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 8px;
+            font-style: italic;
+        }}
+        .wb-screenshots {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }}
+        .wb-screenshot {{
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fafafa;
+        }}
+        .wb-screenshot img {{
+            display: block;
+            width: 100%;
+            height: auto;
+        }}
+        .wb-handoff {{
+            background: var(--cream-bg);
+            border-radius: 12px;
+            padding: 24px 28px;
+            margin-top: 50px;
+        }}
+        .wb-handoff h2 {{ border-bottom-color: rgba(233, 118, 36, 0.3); }}
+        .wb-handoff-item {{
+            padding: 14px 0;
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }}
+        .wb-handoff-item:last-child {{ border-bottom: none; }}
+        .wb-handoff-item h3 {{
+            font-size: 14px;
+            color: #222;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }}
+        .wb-handoff-item p {{
+            font-size: 12.5px;
+            color: var(--muted);
+        }}
+        .wb-handoff-notes {{
+            margin-top: 6px;
+            font-size: 12.5px;
+            color: #444;
+            font-style: italic;
+        }}
+        .wb-empty {{
+            color: var(--muted);
+            font-style: italic;
+            padding: 30px;
+            text-align: center;
+            background: #fafafa;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }}
+        footer.wb-footer {{
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--muted);
+            text-align: center;
+        }}
+        @media print {{
+            body {{ padding: 30px; }}
+            section.wb-phase {{ page-break-inside: avoid; }}
+        }}
+    </style>
+</head>
+<body>
+    <header class="wb-header">
+        <div class="wb-eyebrow">GEO Implementation Summary</div>
+        <h1>{client_name}</h1>
+        <div class="wb-subtitle">{website}{" &middot; " if website and audit_date else ""}{audit_date}</div>
+    </header>
+
+    <div class="wb-summary">
+        Following your GEO audit, our team implemented
+        <strong>{done_count} of {third_sun_total}</strong> recommended changes to your website to improve
+        visibility across AI search engines like ChatGPT, Claude, Gemini, and Perplexity. Below is
+        a summary of the work completed, with documentation of each change.
+    </div>
+
+    {body_intro}
+    {technical_section}
+    {content_section}
+    {handoff_section}
+
+    <footer class="wb-footer">
+        <p>Prepared by Third Sun Productions &middot; thirdsunproductions.com</p>
+    </footer>
+</body>
+</html>
+"""

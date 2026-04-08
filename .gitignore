@@ -6,6 +6,9 @@
 *.db
 !audits.db
 
+# Workbook screenshots — uploaded per audit, not source-controlled
+screenshots/
+
 # Python
 __pycache__/
 *.pyc
