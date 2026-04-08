@@ -1,0 +1,15 @@
+Flask==3.1.2
+python-dotenv==1.2.1
+
+# LLM SDKs (one per provider)
+openai==2.15.0
+anthropic==0.76.0
+google-genai==1.47.0
+google-api-core==2.29.0
+
+# Website scraping
+requests==2.32.5
+beautifulsoup4==4.14.3
+
+# Production WSGI server (Fly.io / any container deploy)
+gunicorn==23.0.0
