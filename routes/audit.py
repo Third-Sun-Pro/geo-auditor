@@ -37,7 +37,8 @@ def run_audit():
             previous_recommendations = prev_fd.get('recommendations', [])
 
     result = run_full_audit(client_name, client_website, queries, package_type,
-                            previous_recommendations=previous_recommendations)
+                            previous_recommendations=previous_recommendations,
+                            client_location=data.get('location', ''))
 
     # Auto-generate FAQs if Anthropic is available
     if result.get("success") and anthropic_client:

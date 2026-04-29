@@ -95,19 +95,31 @@ def _executive_context(percentage, num_queries):
     )
 
 
-def _reaudit_executive_context(prev_pct, cur_pct, pct_change, queries_improved, queries_declined):
-    """Return contextual narrative for re-audit executive summary focused on progress."""
-    if pct_change > 10:
+def _reaudit_executive_context(prev_pct, cur_pct, pct_change, queries_improved, queries_declined,
+                                collision_adjusted=None):
+    """Return contextual narrative for re-audit executive summary focused on progress.
+
+    If `collision_adjusted` is present (newly-detected namesake collisions), the
+    progress narrative uses the collision-adjusted change so the report doesn't
+    frame surfacing-a-pre-existing-issue as a month-over-month regression.
+    """
+    # Base the narrative tone on the real change in visibility, excluding drops
+    # caused purely by newly-detected namesake collisions.
+    effective_change = pct_change
+    if collision_adjusted:
+        effective_change = collision_adjusted.get("adjusted_percentage_change", pct_change)
+
+    if effective_change > 10:
         progress_line = (
             "This represents significant progress. The GEO strategy is clearly working, "
             "and the business is gaining meaningful traction across AI search platforms."
         )
-    elif pct_change > 0:
+    elif effective_change > 0:
         progress_line = (
             "This is positive movement in the right direction. AI platforms are beginning "
             "to surface the business more consistently as optimization efforts take hold."
         )
-    elif pct_change == 0:
+    elif effective_change == 0:
         progress_line = (
             "Visibility has held steady since the last audit. While the score hasn't "
             "changed, maintaining position in a shifting AI landscape is still meaningful. "
@@ -129,7 +141,26 @@ def _reaudit_executive_context(prev_pct, cur_pct, pct_change, queries_improved, 
             parts.append(f"{queries_declined} declined")
         movement_line = " ".join(parts) + " — see the detailed comparison below."
 
-    return f"{progress_line} {movement_line}"
+    collision_line = ""
+    if collision_adjusted:
+        points = collision_adjusted.get("points_lost_to_collision", 0)
+        platforms = sorted({c["platform"] for c in collision_adjusted.get("collision_queries", [])})
+        platforms_str = ", ".join(platforms) if platforms else "one or more platforms"
+        adj_pct = collision_adjusted.get("adjusted_current_percentage", cur_pct)
+        adj_change = collision_adjusted.get("adjusted_percentage_change", pct_change)
+        change_sign = "+" if adj_change > 0 else ""
+        collision_line = (
+            f"<strong>Note on this change:</strong> {points} of the points reflect a "
+            f"newly-detected brand name collision on {platforms_str} — AI platforms are "
+            f"returning information about a different firm with the same name. This issue "
+            f"existed in prior audits as well but was silently scored as a valid mention; "
+            f"the auditor now surfaces it explicitly. Excluding the collision, visibility "
+            f"moved from {prev_pct:.1f}% to {adj_pct:.1f}% ({change_sign}{adj_change:.1f} "
+            f"points). The recommendations below address the collision directly."
+        )
+
+    parts_out = [progress_line, movement_line, collision_line]
+    return " ".join(p for p in parts_out if p)
 
 
 def _build_context_badges(details):
@@ -1215,7 +1246,7 @@ def generate_report_html(data):
         <p>
             {client.get('name', 'The client')} {"now demonstrates" if is_reaudit else "demonstrates"} <strong>{_visibility_label(percentage).lower()} visibility</strong>
             across AI-powered search engines, scoring {percentage:.0f}% overall{(", up from " + str(comparison['previous_percentage']) + "%.") if is_reaudit and comparison.get('percentage_change', 0) > 0 else (", down from " + str(comparison['previous_percentage']) + "%.") if is_reaudit and comparison.get('percentage_change', 0) < 0 else "."}
-            {_reaudit_executive_context(comparison.get('previous_percentage', 0), percentage, comparison.get('percentage_change', 0), comparison.get('queries_improved', 0), comparison.get('queries_declined', 0)) if is_reaudit else _executive_context(percentage, len(queries))}
+            {_reaudit_executive_context(comparison.get('previous_percentage', 0), percentage, comparison.get('percentage_change', 0), comparison.get('queries_improved', 0), comparison.get('queries_declined', 0), comparison.get('collision_adjusted')) if is_reaudit else _executive_context(percentage, len(queries))}
         </p>
 
         <p><strong>KEY FINDINGS</strong></p>

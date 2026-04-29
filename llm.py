@@ -26,37 +26,48 @@ _RATE_LIMIT_ERRORS = (
     google_exceptions.ResourceExhausted,  # Google Gemini (legacy SDK)
 )
 
+# Transient server errors (5xx) — also retry-worthy. Without this, a single 503
+# from Gemini silently scores the query as "not mentioned" and tanks the audit.
+_TRANSIENT_SERVER_ERRORS = (
+    openai.InternalServerError,              # OpenAI + Perplexity 5xx
+    anthropic_lib.InternalServerError,       # Anthropic 5xx
+    google_exceptions.ServiceUnavailable,    # Google 503 (legacy SDK)
+    google_exceptions.InternalServerError,   # Google 500 (legacy SDK)
+)
+
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]  # seconds — exponential backoff
 
 
-def _is_rate_limit_error(e):
-    """Check if an exception is a rate-limit error worth retrying."""
-    if isinstance(e, _RATE_LIMIT_ERRORS):
+def _is_retryable_error(e):
+    """Check if an exception is transient (rate limit or 5xx) and worth retrying."""
+    if isinstance(e, _RATE_LIMIT_ERRORS) or isinstance(e, _TRANSIENT_SERVER_ERRORS):
         return True
-    # New google.genai SDK: ClientError with code 429
+    # New google.genai SDK: ClientError code 429, ServerError codes 5xx
     if isinstance(e, genai_errors.ClientError) and getattr(e, 'code', 0) == 429:
+        return True
+    if isinstance(e, genai_errors.ServerError) and 500 <= getattr(e, 'code', 0) < 600:
         return True
     return False
 
 
 def _with_retry(fn):
-    """Call fn(), retrying on rate-limit errors with exponential backoff.
+    """Call fn(), retrying on transient errors (rate limits and 5xx) with exponential backoff.
 
-    Non-rate-limit exceptions are raised immediately (no retry).
+    Non-retryable exceptions are raised immediately.
     """
     last_error = None
     for attempt in range(MAX_RETRIES + 1):
         try:
             return fn()
         except Exception as e:
-            if not _is_rate_limit_error(e):
+            if not _is_retryable_error(e):
                 raise
             last_error = e
             if attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
                 logger.warning(
-                    "Rate limited (attempt %d/%d), retrying in %ds: %s",
+                    "Transient error (attempt %d/%d), retrying in %ds: %s",
                     attempt + 1, MAX_RETRIES, delay, e,
                 )
                 time.sleep(delay)
@@ -226,7 +237,161 @@ def _analyze_sentiment(answer, name_variations, name_found):
         return "neutral"
 
 
-def analyze_response(answer, client_name, client_website):
+# ---------------------------------------------------------------------------
+# Namesake collision detection
+# ---------------------------------------------------------------------------
+# Detects when an AI response mentions the client's company name but actually
+# describes a *different* entity with the same name (e.g. Perplexity returning
+# info about a Florida firm when the client is in California). Such responses
+# should score 0, not 2-3, because the client isn't really surfaced.
+
+_US_STATES = {
+    'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+    'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+    'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+    'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+    'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+    'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+    'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+    'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+    'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+    'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+    'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+    'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+    'WI': 'Wisconsin', 'WY': 'Wyoming',
+}
+_STATE_NAME_TO_CODE = {name.lower(): code for code, name in _US_STATES.items()}
+_STATE_CODES = set(_US_STATES.keys())
+
+# Full state names, sorted longest-first so "West Virginia" matches before "Virginia"
+_STATE_NAME_PATTERN = re.compile(
+    r'\b(' + '|'.join(re.escape(n) for n in sorted(_US_STATES.values(), key=len, reverse=True)) + r')\b',
+    re.IGNORECASE,
+)
+# Two-letter state code in an address-like position (after a comma): ", FL"
+_STATE_CODE_PATTERN = re.compile(r',\s+([A-Z]{2})\b')
+
+
+def _parse_client_state(client_location):
+    """Extract a US state code from a client location string.
+
+    "Westlake Village, CA" -> "CA"
+    "San Francisco, California" -> "CA"
+    "Salt Lake City" -> None (no state info)
+    """
+    if not client_location:
+        return None
+    # Try trailing ", XX" state code
+    m = re.search(r',\s*([A-Za-z]{2})\s*$', client_location.strip())
+    if m and m.group(1).upper() in _STATE_CODES:
+        return m.group(1).upper()
+    # Try full state name anywhere in string
+    m = _STATE_NAME_PATTERN.search(client_location)
+    if m:
+        return _STATE_NAME_TO_CODE[m.group(1).lower()]
+    return None
+
+
+def _states_in_window(text):
+    """Return the set of US state codes mentioned in the given text span."""
+    states = set()
+    for m in _STATE_NAME_PATTERN.finditer(text):
+        states.add(_STATE_NAME_TO_CODE[m.group(1).lower()])
+    for m in _STATE_CODE_PATTERN.finditer(text):
+        if m.group(1) in _STATE_CODES:
+            states.add(m.group(1))
+    return states
+
+
+def _find_name_positions(response, distinctive_words):
+    """Find character ranges in `response` where the client name likely appears.
+
+    Matches distinctive words in order with flexible punctuation between them
+    (so "Retirement Planning Associates, Inc." still matches even though the
+    source name has no comma). Case-insensitive.
+    """
+    if not distinctive_words:
+        return []
+    # Allow any punctuation/whitespace between words (e.g. "Name, Inc." → "Name Inc.")
+    pattern = r'\b' + r'[\s,.\-\'"()]+'.join(re.escape(w) for w in distinctive_words) + r'\b'
+    return [(m.start(), m.end()) for m in re.finditer(pattern, response, re.IGNORECASE)]
+
+
+def _is_sentence_break(text, i):
+    """True if text[i] ends a sentence (not just an abbreviation like 'Inc.')."""
+    if text[i] == '\n':
+        return True
+    if text[i] not in '.!?':
+        return False
+    # Look past whitespace to the next character.
+    j = i + 1
+    while j < len(text) and text[j] in ' \t':
+        j += 1
+    if j >= len(text):
+        return True  # end of text
+    # A real sentence break is followed by an uppercase letter starting the next
+    # sentence. If the next char is lowercase, a comma, a digit, etc., it's an
+    # abbreviation like "Inc., based in ..." or "Mr. Smith".
+    return text[j].isupper()
+
+
+def _sentence_containing(text, start, end):
+    """Return the sentence-ish span of text that contains the range [start, end)."""
+    sent_start = 0
+    for i in range(start - 1, -1, -1):
+        if _is_sentence_break(text, i):
+            sent_start = i + 1
+            break
+    sent_end = len(text)
+    for i in range(end, len(text)):
+        if _is_sentence_break(text, i):
+            sent_end = i
+            break
+    return text[sent_start:sent_end]
+
+
+def _detect_namesake_collision(response, client_name, client_location):
+    """Return True if the response describes a different entity with the same name.
+
+    Rule: look at every sentence that names the client. Collect the US states
+    mentioned in those sentences. If the client's state appears, the response
+    is (at least partly) about them — don't flag. If only foreign states
+    appear, flag as a namesake collision.
+
+    High-precision — requires ≥2 distinctive name words AND the name to be
+    bound to a state within the same sentence. Mentions in other sentences
+    (e.g. "In California, retirement planning costs...") don't cancel.
+    """
+    if not response or not client_name or not client_location:
+        return False
+    client_state = _parse_client_state(client_location)
+    if not client_state:
+        return False
+
+    # Pull out distinctive name words (skip "Inc", "LLC", etc. — too generic to
+    # indicate the response is about the same entity).
+    name_tokens = re.sub(r'[^a-z0-9\s]', ' ', client_name.lower()).split()
+    distinctive = [w for w in name_tokens if len(w) > 2 and w not in GENERIC_SUFFIXES]
+    if len(distinctive) < 2:
+        return False  # Name too short/generic to reliably detect namesake
+
+    positions = _find_name_positions(response, distinctive)
+    if not positions:
+        return False  # Name isn't really in the response
+
+    states_bound_to_name = set()
+    for start, end in positions:
+        sentence = _sentence_containing(response, start, end)
+        states_bound_to_name |= _states_in_window(sentence)
+
+    if not states_bound_to_name:
+        return False  # No state bound to name — ambiguous
+    if client_state in states_bound_to_name:
+        return False  # Client's state bound to name — plausibly about them
+    return True  # Only foreign states bound to name — collision
+
+
+def analyze_response(answer, client_name, client_website, client_location=None):
     """Score an AI response for client mentions. Returns 0-3 points."""
     score = 0
     mentions = []
@@ -303,7 +468,22 @@ def analyze_response(answer, client_name, client_website):
 
     score = min(score, 3)
 
-    if score >= 3:
+    # Namesake collision check: if the response mentions the client name but
+    # explicitly describes a different geographic entity, the client isn't
+    # really surfaced. Override score to 0. Runs on its own looser name
+    # detection (distinctive-word matching) so it still fires when punctuation
+    # differences (e.g. "Acme Co, Inc.") cause the strict name_found check
+    # above to miss.
+    namesake_collision = False
+    if client_location:
+        namesake_collision = _detect_namesake_collision(answer, client_name, client_location)
+        if namesake_collision:
+            score = 0
+            mentions.append("Namesake collision — response describes a different entity")
+
+    if namesake_collision:
+        finding = "Namesake collision — response describes a different firm with the same name"
+    elif score >= 3:
         finding = "Strong presence - named and cited"
     elif score >= 2:
         finding = "Mentioned in response"
@@ -318,6 +498,7 @@ def analyze_response(answer, client_name, client_website):
 
     return {
         "score": score,
+        "namesake_collision": namesake_collision,
         "finding": finding,
         "mentions": mentions,
         "response_preview": answer[:300] + "..." if len(answer) > 300 else answer,
@@ -344,11 +525,12 @@ def _error_result(message):
     }
 
 
-def query_platform(platform, query_text, client_name, client_website):
+def query_platform(platform, query_text, client_name, client_website, client_location=None):
     """Run a query on the specified platform and score the response.
 
     platform: one of "chatgpt", "claude", "gemini", "perplexity"
-    Returns dict with score, finding, mentions, response_preview.
+    client_location: optional string like "Westlake Village, CA" — enables namesake
+    collision detection when the response describes a different entity.
     """
     runners = {
         "chatgpt": _run_chatgpt,
@@ -359,10 +541,10 @@ def query_platform(platform, query_text, client_name, client_website):
     runner = runners.get(platform)
     if not runner:
         return _error_result(f"Unknown platform: {platform}")
-    return runner(query_text, client_name, client_website)
+    return runner(query_text, client_name, client_website, client_location)
 
 
-def _run_chatgpt(query, client_name, client_website):
+def _run_chatgpt(query, client_name, client_website, client_location=None):
     if not openai_client:
         return _error_result("OpenAI API key not configured")
     try:
@@ -376,12 +558,12 @@ def _run_chatgpt(query, client_name, client_website):
             return response.choices[0].message.content
 
         answer = _with_retry(_call)
-        return analyze_response(answer, client_name, client_website)
+        return analyze_response(answer, client_name, client_website, client_location)
     except Exception as e:
         return _error_result(f"Error: {e}")
 
 
-def _run_claude(query, client_name, client_website):
+def _run_claude(query, client_name, client_website, client_location=None):
     if not anthropic_client:
         return _error_result("Anthropic API key not configured")
     try:
@@ -395,12 +577,12 @@ def _run_claude(query, client_name, client_website):
             return response.content[0].text
 
         answer = _with_retry(_call)
-        return analyze_response(answer, client_name, client_website)
+        return analyze_response(answer, client_name, client_website, client_location)
     except Exception as e:
         return _error_result(f"Error: {e}")
 
 
-def _run_gemini(query, client_name, client_website):
+def _run_gemini(query, client_name, client_website, client_location=None):
     if not gemini_client:
         return _error_result("Google API key not configured")
     try:
@@ -413,12 +595,12 @@ def _run_gemini(query, client_name, client_website):
             return response.text
 
         answer = _with_retry(_call)
-        return analyze_response(answer, client_name, client_website)
+        return analyze_response(answer, client_name, client_website, client_location)
     except Exception as e:
         return _error_result(f"Error: {e}")
 
 
-def _run_perplexity(query, client_name, client_website):
+def _run_perplexity(query, client_name, client_website, client_location=None):
     if not perplexity_client:
         return _error_result("Perplexity API key not configured")
     try:
@@ -432,6 +614,6 @@ def _run_perplexity(query, client_name, client_website):
             return response.choices[0].message.content
 
         answer = _with_retry(_call)
-        return analyze_response(answer, client_name, client_website)
+        return analyze_response(answer, client_name, client_website, client_location)
     except Exception as e:
         return _error_result(f"Error: {e}")

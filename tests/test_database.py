@@ -184,6 +184,101 @@ def test_track_recommendations_empty():
     assert _track_recommendations(None, [], []) == []
 
 
+# ---------------------------------------------------------------------------
+# Comparison collision-adjustment tests
+# ---------------------------------------------------------------------------
+
+def _comparison_fixture_pair(app, cur_query_score=9, cur_perp_score=0, cur_perp_collision=True,
+                              prev_query_score=12, prev_perp_score=3):
+    """Save a pair of audits that share a brand query, return (previous_id, current_id)."""
+    prev_fd = {
+        "client": {"name": "RPA Test", "audit_date": "March 1, 2026", "location": "Westlake Village, CA"},
+        "queries": [
+            {"query": "What do people say about RPA Test?", "type": "Brand", "score": prev_query_score,
+             "details": {
+                 "chatgpt": {"score": 3, "namesake_collision": False},
+                 "claude": {"score": 3, "namesake_collision": False},
+                 "gemini": {"score": 3, "namesake_collision": False},
+                 "perplexity": {"score": prev_perp_score, "namesake_collision": False},
+             }},
+        ],
+        "platforms": {
+            "chatgpt": {"score": 3, "max": 3},
+            "claude": {"score": 3, "max": 3},
+            "gemini": {"score": 3, "max": 3},
+            "perplexity": {"score": prev_perp_score, "max": 3},
+        },
+    }
+    cur_fd = {
+        "client": {"name": "RPA Test", "audit_date": "April 1, 2026", "location": "Westlake Village, CA"},
+        "queries": [
+            {"query": "What do people say about RPA Test?", "type": "Brand", "score": cur_query_score,
+             "details": {
+                 "chatgpt": {"score": 3, "namesake_collision": False},
+                 "claude": {"score": 3, "namesake_collision": False},
+                 "gemini": {"score": 3, "namesake_collision": False},
+                 "perplexity": {"score": cur_perp_score, "namesake_collision": cur_perp_collision},
+             }},
+        ],
+        "platforms": {
+            "chatgpt": {"score": 3, "max": 3},
+            "claude": {"score": 3, "max": 3},
+            "gemini": {"score": 3, "max": 3},
+            "perplexity": {"score": cur_perp_score, "max": 3},
+        },
+    }
+    prev_id = database.save_audit(prev_fd, {})
+    cur_id = database.save_audit(cur_fd, {})
+    return prev_id, cur_id
+
+
+def test_comparison_reports_newly_detected_collisions(app):
+    """When a platform dropped due to newly-detected namesake collision, the comparison
+    surfaces the delta separately so re-audit reports don't frame it as a regression."""
+    prev_id, cur_id = _comparison_fixture_pair(app)
+    comp = database.get_comparison(cur_id, prev_id)
+
+    # Raw delta is negative — 3 points lost on Perplexity
+    assert comp["percentage_change"] < 0
+
+    # Collision-adjusted output should attribute those 3 points to newly-detected collision
+    adj = comp.get("collision_adjusted")
+    assert adj is not None
+    assert adj["points_lost_to_collision"] == 3
+    # Excluding the collision, the score is unchanged
+    assert adj["adjusted_percentage_change"] == 0.0
+    # And the specific query/platform is named
+    assert len(adj["collision_queries"]) == 1
+    assert adj["collision_queries"][0]["platform"] == "Perplexity"
+    assert "RPA Test" in adj["collision_queries"][0]["query"]
+
+
+def test_comparison_no_collision_adjustment_when_none_detected(app):
+    """Without any namesake collisions, collision_adjusted is None."""
+    prev_id, cur_id = _comparison_fixture_pair(
+        app, cur_perp_score=3, cur_perp_collision=False, cur_query_score=12, prev_query_score=12,
+    )
+    comp = database.get_comparison(cur_id, prev_id)
+    assert comp.get("collision_adjusted") is None
+
+
+def test_comparison_does_not_credit_collision_flagged_in_both(app):
+    """If the previous audit *also* flagged the collision, current is not a newly-detected
+    collision — the drop (if any) is a real change in platform behavior."""
+    prev_id, cur_id = _comparison_fixture_pair(app)
+    # Mutate the previous to already have the collision flag
+    from database import get_db
+    import json as _json
+    prev = database.get_audit(prev_id)
+    prev_fd = prev["form_data"]
+    prev_fd["queries"][0]["details"]["perplexity"]["namesake_collision"] = True
+    database.save_audit(prev_fd, {}, audit_id=prev_id)
+
+    comp = database.get_comparison(cur_id, prev_id)
+    # Collision wasn't newly-detected, so no adjustment
+    assert comp.get("collision_adjusted") is None
+
+
 def test_track_recommendations_strong():
     """Recommendation with unchanged high-scoring queries should show 'strong'."""
     prev_recs = [{

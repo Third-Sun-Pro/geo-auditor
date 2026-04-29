@@ -24,7 +24,7 @@ PLATFORMS = list(PLATFORM_NAMES.keys())
 
 
 def run_full_audit(client_name, client_website, queries, package_type="basic",
-                   previous_recommendations=None):
+                   previous_recommendations=None, client_location=None):
     """Run a GEO audit: query all platforms for each search term in parallel.
 
     Returns a dict ready to be jsonify'd by the route handler.
@@ -47,7 +47,7 @@ def run_full_audit(client_name, client_website, queries, package_type="basic",
 
         with ThreadPoolExecutor(max_workers=4) as platform_executor:
             futures = {
-                platform_executor.submit(query_platform, p, query_text, client_name, client_website): p
+                platform_executor.submit(query_platform, p, query_text, client_name, client_website, client_location): p
                 for p in PLATFORMS
             }
             platform_results = {}
@@ -188,6 +188,27 @@ def _get_missing_platforms(query_result):
 
 def _generate_key_findings(results, totals, max_per_platform):
     key_findings = []
+
+    # Namesake collisions — responses that name the client but describe a
+    # different firm with the same name (different state). Surface first
+    # because it reshapes how the rest of the report should be read.
+    collision_platforms = set()
+    collision_queries = []
+    for r in results:
+        for pkey, pdata in (r.get('details') or {}).items():
+            if pdata.get('namesake_collision'):
+                collision_platforms.add(PLATFORM_NAMES.get(pkey, pkey))
+                if r['query'] not in collision_queries:
+                    collision_queries.append(r['query'])
+    if collision_platforms:
+        plats_str = ", ".join(sorted(collision_platforms))
+        q_sample = f'"{collision_queries[0]}"' if collision_queries else "brand queries"
+        key_findings.append(
+            f"Brand Name Collision: On {plats_str}, searches for {q_sample} return "
+            f"information about a different firm with the same name — your business is "
+            f"not actually being surfaced. Disambiguate via LocalBusiness schema, "
+            f"location-specific content, and a claimed Google Business Profile."
+        )
 
     # Brand queries
     brand_queries = [r for r in results if r['type'] == 'Brand']

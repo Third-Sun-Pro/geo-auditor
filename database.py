@@ -329,6 +329,14 @@ def get_comparison(current_id, previous_id):
         cur_queries,
     )
 
+    # Collision adjustment: separate "newly-detected namesake collisions" from
+    # real visibility regressions. When the current audit flags a collision on
+    # a platform that wasn't flagged before, the drop reflects a pre-existing
+    # issue being surfaced for the first time — not a loss of ground.
+    collision_adjusted = _compute_collision_adjustment(
+        prev_queries, cur_queries, prev_total, cur_total, cur_max, prev_pct,
+    )
+
     return {
         "previous_audit_date": prev_fd.get("client", {}).get("audit_date", ""),
         "current_audit_date": cur_fd.get("client", {}).get("audit_date", ""),
@@ -343,6 +351,63 @@ def get_comparison(current_id, previous_id):
         "queries_declined": len([q for q in query_changes if q["change"] < 0]),
         "queries_unchanged": len([q for q in query_changes if q["change"] == 0]),
         "recommendation_tracking": recommendation_tracking,
+        "collision_adjusted": collision_adjusted,
+    }
+
+
+_PLATFORM_DISPLAY_NAMES = {
+    "chatgpt": "ChatGPT",
+    "claude": "Claude",
+    "gemini": "Gemini",
+    "perplexity": "Perplexity",
+}
+
+
+def _compute_collision_adjustment(prev_queries, cur_queries, prev_total, cur_total, cur_max, prev_pct):
+    """Build a collision-adjusted summary if this re-audit newly detected namesake
+    collisions that were silently scoring as mentions before. Returns None when
+    there's nothing to adjust.
+    """
+    prev_by_query = {q.get("query", ""): q for q in prev_queries}
+    points_lost = 0
+    collision_queries = []
+
+    for cur_q in cur_queries:
+        query_text = cur_q.get("query", "")
+        prev_q = prev_by_query.get(query_text)
+        if not prev_q:
+            continue
+        cur_details = cur_q.get("details") or {}
+        prev_details = prev_q.get("details") or {}
+        for pkey, cur_pdata in cur_details.items():
+            if not cur_pdata.get("namesake_collision"):
+                continue
+            prev_pdata = prev_details.get(pkey, {})
+            # Newly detected = current flags collision AND previous did not.
+            if prev_pdata.get("namesake_collision"):
+                continue
+            prev_score = prev_pdata.get("score", 0) or 0
+            cur_score = cur_pdata.get("score", 0) or 0
+            if prev_score > cur_score:
+                points_lost += (prev_score - cur_score)
+                collision_queries.append({
+                    "query": query_text,
+                    "platform": _PLATFORM_DISPLAY_NAMES.get(pkey, pkey),
+                    "previous_score": prev_score,
+                    "current_score": cur_score,
+                })
+
+    if points_lost <= 0:
+        return None
+
+    adjusted_cur_total = cur_total + points_lost
+    adjusted_cur_pct = (adjusted_cur_total / cur_max * 100) if cur_max > 0 else 0
+    return {
+        "points_lost_to_collision": points_lost,
+        "adjusted_current_total": adjusted_cur_total,
+        "adjusted_current_percentage": round(adjusted_cur_pct, 1),
+        "adjusted_percentage_change": round(adjusted_cur_pct - prev_pct, 1),
+        "collision_queries": collision_queries,
     }
 
 

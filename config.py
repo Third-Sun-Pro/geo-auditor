@@ -14,7 +14,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 CHATGPT_MODEL = "gpt-4o-mini"
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 PERPLEXITY_MODEL = "sonar"
 
 # ---------------------------------------------------------------------------

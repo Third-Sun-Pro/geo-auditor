@@ -7,7 +7,7 @@ import openai
 import anthropic as anthropic_lib
 from google.api_core import exceptions as google_exceptions
 
-from llm import analyze_response, _with_retry
+from llm import analyze_response, _with_retry, _detect_namesake_collision
 
 
 def _make_openai_rate_limit_error():
@@ -240,6 +240,116 @@ def test_name_with_hyphens():
 
 
 # ---------------------------------------------------------------------------
+# Namesake collision detection
+# ---------------------------------------------------------------------------
+
+def test_namesake_collision_detects_different_state_by_name():
+    """Response explicitly says the company is based in a different state."""
+    response = (
+        "Retirement Planning Associates, Inc., based in Winter Springs, Florida, "
+        "specializes in retirement planning for Florida educational employees."
+    )
+    assert _detect_namesake_collision(
+        response, "Retirement Planning Associates Inc.", "Westlake Village, CA"
+    ) is True
+
+
+def test_namesake_collision_detects_different_state_by_code():
+    """Response uses a 2-letter state code after a comma in an address."""
+    response = "Sunrise Property Advisors, based in Miami, FL, provides excellent service."
+    assert _detect_namesake_collision(
+        response, "Sunrise Property Advisors", "Seattle, WA"
+    ) is True
+
+
+def test_namesake_collision_ignores_matching_state():
+    """Response mentions the client's state — not a collision."""
+    response = (
+        "Retirement Planning Associates Inc. is located in Westlake Village, California, "
+        "and has helped local clients for years."
+    )
+    assert _detect_namesake_collision(
+        response, "Retirement Planning Associates Inc.", "Westlake Village, CA"
+    ) is False
+
+
+def test_namesake_collision_returns_false_when_no_location_in_response():
+    """No location signal in the response — can't determine, don't flag."""
+    response = "Retirement Planning Associates Inc. is a financial planning firm."
+    assert _detect_namesake_collision(
+        response, "Retirement Planning Associates Inc.", "Westlake Village, CA"
+    ) is False
+
+
+def test_namesake_collision_returns_false_when_name_not_mentioned():
+    """If the name isn't in the response, there's nothing to collide with."""
+    response = "Some firm in Florida helps retirees."
+    assert _detect_namesake_collision(
+        response, "Retirement Planning Associates Inc.", "Westlake Village, CA"
+    ) is False
+
+
+def test_namesake_collision_returns_false_when_client_location_missing():
+    """No client location — we can't compare, so don't flag."""
+    response = "Acme Co, based in Miami, FL, provides excellent service."
+    assert _detect_namesake_collision(response, "Acme Co", "") is False
+    assert _detect_namesake_collision(response, "Acme Co", None) is False
+
+
+def test_namesake_collision_returns_false_when_both_states_mentioned():
+    """Response mentions the client's state alongside another — plausibly still the client."""
+    response = (
+        "Acme Co has offices in Seattle, Washington, and also a satellite branch in Miami, Florida."
+    )
+    assert _detect_namesake_collision(
+        response, "Acme Co", "Seattle, WA"
+    ) is False
+
+
+def test_namesake_collision_scoring_forces_zero():
+    """When analyze_response detects a collision, score drops to 0."""
+    response = (
+        "Retirement Planning Associates, Inc., based in Winter Springs, Florida, "
+        "specializes in retirement planning for Florida educational employees. "
+        "Retirement Planning Associates Inc. has been serving clients since 2001."
+    )
+    result = analyze_response(
+        response,
+        "Retirement Planning Associates Inc.",
+        "https://rpa2000.com",
+        client_location="Westlake Village, CA",
+    )
+    assert result["score"] == 0
+    assert result.get("namesake_collision") is True
+    assert "namesake" in result["finding"].lower()
+
+
+def test_namesake_collision_absent_when_location_matches():
+    """When the response mentions the client's state, score is unaffected by namesake logic."""
+    response = "Retirement Planning Associates Inc. is based in Westlake Village, California."
+    result = analyze_response(
+        response,
+        "Retirement Planning Associates Inc.",
+        "https://rpa2000.com",
+        client_location="Westlake Village, CA",
+    )
+    assert result["score"] >= 2
+    assert result.get("namesake_collision") is False
+
+
+def test_namesake_collision_backwards_compatible_without_location():
+    """Existing callers that don't pass client_location still work."""
+    result = analyze_response(
+        "Third Sun Productions is a web design agency.",
+        "Third Sun Productions",
+        "https://thirdsun.com",
+    )
+    assert result["score"] >= 2
+    # Should not flag collision without location context
+    assert result.get("namesake_collision") in (False, None)
+
+
+# ---------------------------------------------------------------------------
 # Retry logic tests
 # ---------------------------------------------------------------------------
 
@@ -329,3 +439,36 @@ def test_retry_backoff_delays(mock_sleep):
 
     delays = [call.args[0] for call in mock_sleep.call_args_list]
     assert delays == [2, 4, 8]
+
+
+@patch("llm.time.sleep")
+def test_retry_works_for_gemini_503_unavailable(mock_sleep):
+    """Google ServiceUnavailable (503) should trigger retry — API can briefly fail under load."""
+    call_count = {"n": 0}
+
+    def gemini_unavailable():
+        call_count["n"] += 1
+        if call_count["n"] < 2:
+            raise google_exceptions.ServiceUnavailable("503 Service unavailable")
+        return "gemini response"
+
+    result = _with_retry(gemini_unavailable)
+    assert result == "gemini response"
+    assert call_count["n"] == 2
+
+
+@patch("llm.time.sleep")
+def test_retry_works_for_openai_500(mock_sleep):
+    """OpenAI InternalServerError (5xx) should trigger retry."""
+    call_count = {"n": 0}
+
+    def openai_500():
+        call_count["n"] += 1
+        if call_count["n"] < 2:
+            mock_response = httpx.Response(500, request=httpx.Request("POST", "https://api.openai.com"))
+            raise openai.InternalServerError(message="Server error", response=mock_response, body=None)
+        return "openai response"
+
+    result = _with_retry(openai_500)
+    assert result == "openai response"
+    assert call_count["n"] == 2
