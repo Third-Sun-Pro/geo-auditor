@@ -5,7 +5,7 @@ The workbook is the post-audit "what we did" tracker. One workbook per audit
 in v1; per-client editing can be added later if needed.
 
 Phases:
-    technical — Technical foundation work Third Sun executes (schema, llms.txt, etc.)
+    technical — Technical foundation work Third Sun executes (schema, crawler access, etc.)
     content   — Content optimization work Third Sun executes (FAQ, About, etc.)
     client    — Off-site work handed to the client (GBP, reviews, directories, etc.)
 """
@@ -29,8 +29,8 @@ MASTER_CHECKLIST = [
     {
         "id": "ai_crawler_files",
         "phase": "technical",
-        "title": "AI crawler files (llms.txt, robots.txt, sitemap.xml)",
-        "description": "Add llms.txt at site root, allow AI crawlers (GPTBot, ClaudeBot, PerplexityBot, Google-Extended, CCBot) in robots.txt, and verify sitemap.xml is current and submitted to GSC + Bing.",
+        "title": "AI crawler access (robots.txt, sitemap.xml)",
+        "description": "Allow AI crawlers (GPTBot, ClaudeBot, PerplexityBot, Google-Extended, CCBot) in robots.txt, and verify sitemap.xml is current and submitted to GSC + Bing.",
     },
     {
         "id": "nap_consistency",
