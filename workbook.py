@@ -5,7 +5,7 @@ The workbook is the post-audit "what we did" tracker. One workbook per audit
 in v1; per-client editing can be added later if needed.
 
 Phases:
-    technical — Technical foundation work Third Sun executes (schema, crawler access, etc.)
+    technical — Technical foundation work Third Sun executes (schema, NAP consistency, etc.)
     content   — Content optimization work Third Sun executes (FAQ, About, etc.)
     client    — Off-site work handed to the client (GBP, reviews, directories, etc.)
 """
@@ -25,12 +25,6 @@ MASTER_CHECKLIST = [
         "phase": "technical",
         "title": "Add JSON-LD schema markup",
         "description": "Organization, LocalBusiness, Service, FAQPage, BreadcrumbList. Single biggest GEO lever.",
-    },
-    {
-        "id": "ai_crawler_files",
-        "phase": "technical",
-        "title": "AI crawler access (robots.txt, sitemap.xml)",
-        "description": "Allow AI crawlers (GPTBot, ClaudeBot, PerplexityBot, Google-Extended, CCBot) in robots.txt, and verify sitemap.xml is current and submitted to GSC + Bing.",
     },
     {
         "id": "nap_consistency",
