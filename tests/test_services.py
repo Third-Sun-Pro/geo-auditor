@@ -1,11 +1,14 @@
 """Tests for services.py — recommendations, key findings, FAQ helpers (no API calls)."""
 
 import json
+from unittest.mock import patch
 import pytest
 from services import (
     generate_recommendations, _visibility_level, _generate_key_findings,
     _faqs_to_html, _faqs_to_schema,
     _template_recommendations,
+    _get_missing_platforms, _get_mentioning_platforms, _platform_note,
+    run_full_audit,
 )
 
 
@@ -184,6 +187,87 @@ def test_weak_brand_finding():
     totals = {"chatgpt": 1, "claude": 1, "gemini": 0, "perplexity": 0}
     findings = _generate_key_findings(brand, totals, 3)
     assert any("Weak brand" in f or "critical" in f for f in findings)
+
+
+# ---------------------------------------------------------------------------
+# Errored-query handling — rate limits/5xx shouldn't be scored as "not mentioned"
+# ---------------------------------------------------------------------------
+
+def test_missing_platforms_excludes_errored():
+    """A platform that errored shouldn't show up as 'missing from'."""
+    q = {"details": {
+        "chatgpt": {"score": 2},
+        "claude": {"score": 0},
+        "gemini": {"score": 0, "errored": True, "error": "429 quota"},
+        "perplexity": {"score": 1},
+    }}
+    missing = _get_missing_platforms(q)
+    assert "Claude" in missing
+    assert "Gemini" not in missing
+
+
+def test_mentioning_platforms_excludes_errored():
+    """An errored platform shouldn't be counted as mentioning either."""
+    q = {"details": {
+        "chatgpt": {"score": 3},
+        "gemini": {"score": 0, "errored": True},
+    }}
+    mentioning = _get_mentioning_platforms(q)
+    assert "ChatGPT" in mentioning
+    assert "Gemini" not in mentioning
+
+
+def test_platform_note_appends_errored_count():
+    note = _platform_note("gemini", errored_count=8, total_queries=10)
+    assert "8/10" in note
+    assert "errored" in note.lower()
+
+
+def test_platform_note_no_errors_unchanged():
+    note = _platform_note("gemini", errored_count=0, total_queries=10)
+    assert "errored" not in note.lower()
+
+
+def test_run_full_audit_excludes_errored_from_platform_max():
+    """Gemini erroring on every query should reduce its max to 0, not drag the score down."""
+    def fake_query(platform, query_text, client_name, client_website, client_location=None):
+        if platform == "gemini":
+            return {"errored": True, "error": "429", "score": 0,
+                    "finding": "Error: 429", "mentions": []}
+        return {"score": 3, "finding": "Strong presence - named and cited",
+                "mentions": ["Named in response"], "namesake_collision": False}
+
+    queries = [{"query": f"q{i}", "type": "Brand"} for i in range(3)]
+    with patch("services.query_platform", side_effect=fake_query):
+        result = run_full_audit("Test Co", "https://test.co", queries)
+
+    # Gemini errored on all 3 queries → max should be 0
+    assert result["platforms"]["gemini"]["max"] == 0
+    assert result["platforms"]["gemini"]["errored_count"] == 3
+    # Other platforms scored 3 each across 3 queries → 9/9
+    assert result["platforms"]["chatgpt"]["score"] == 9
+    assert result["platforms"]["chatgpt"]["max"] == 9
+    # Total max should be 9 (per query) × 3 queries = 27, not 36
+    assert result["max_score"] == 27
+    # Percentage should be 100% (9*3 scored / 27 max), not artificially deflated by Gemini
+    assert result["percentage"] == 100.0
+
+
+def test_run_full_audit_partial_errors_in_finding():
+    """A query where one platform errored should mention that in the finding."""
+    def fake_query(platform, query_text, client_name, client_website, client_location=None):
+        if platform == "gemini":
+            return {"errored": True, "error": "429", "score": 0, "finding": "Error: 429"}
+        return {"score": 3, "finding": "Strong presence", "mentions": [], "namesake_collision": False}
+
+    with patch("services.query_platform", side_effect=fake_query):
+        result = run_full_audit("Test Co", "https://test.co",
+                                [{"query": "q1", "type": "Brand"}])
+
+    q = result["results"][0]
+    assert q["max"] == 9  # 3 platforms × 3
+    assert "Gemini" in q["errored_on"]
+    assert "errored on Gemini" in q["finding"]
 
 
 def test_platform_variance_finding():

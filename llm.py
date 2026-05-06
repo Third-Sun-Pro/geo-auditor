@@ -513,8 +513,12 @@ def analyze_response(answer, client_name, client_website, client_location=None):
 # ---------------------------------------------------------------------------
 
 def _error_result(message):
+    # `errored: True` lets downstream scoring distinguish a 0 from "not mentioned"
+    # vs. a 0 from a rate limit / API failure. Without this flag, a quota-exhausted
+    # platform tanks the visibility percentage as if the client were genuinely absent.
     return {
         "error": message,
+        "errored": True,
         "score": 0,
         "finding": message,
         "mentions": [],

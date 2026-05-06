@@ -38,6 +38,7 @@ def run_full_audit(client_name, client_website, queries, package_type="basic",
 
     results = []
     totals = {p: 0 for p in PLATFORMS}
+    errored_counts = {p: 0 for p in PLATFORMS}
 
     def run_single_query(q):
         query_text = q.get('query', '')
@@ -56,14 +57,28 @@ def run_full_audit(client_name, client_website, queries, package_type="basic",
                 try:
                     platform_results[pname] = future.result()
                 except Exception as e:
-                    platform_results[pname] = {"error": str(e), "score": 0, "finding": f"Error: {e}"}
+                    # Mirror _error_result so unexpected exceptions are also flagged
+                    # as errored (not "not mentioned").
+                    platform_results[pname] = {
+                        "error": str(e), "errored": True,
+                        "score": 0, "finding": f"Error: {e}",
+                    }
 
         query_score = sum(platform_results.get(p, {}).get('score', 0) for p in PLATFORMS)
 
-        mentioned_on = [PLATFORM_NAMES[p] for p in PLATFORMS if platform_results.get(p, {}).get('score', 0) >= 1]
-        not_mentioned_on = [PLATFORM_NAMES[p] for p in PLATFORMS if platform_results.get(p, {}).get('score', 0) < 1]
+        # Errored platforms (e.g. rate-limited, quota exhausted, 5xx) shouldn't be
+        # counted as "not mentioned" — they didn't get a real answer to score.
+        errored_platforms = [p for p in PLATFORMS if platform_results.get(p, {}).get('errored')]
+        scored_platforms = [p for p in PLATFORMS if p not in errored_platforms]
+        query_max = len(scored_platforms) * 3
 
-        if query_score >= 9:
+        mentioned_on = [PLATFORM_NAMES[p] for p in scored_platforms if platform_results.get(p, {}).get('score', 0) >= 1]
+        not_mentioned_on = [PLATFORM_NAMES[p] for p in scored_platforms if platform_results.get(p, {}).get('score', 0) < 1]
+        errored_on = [PLATFORM_NAMES[p] for p in errored_platforms]
+
+        if not scored_platforms:
+            finding = f"All platforms errored ({', '.join(errored_on)})"
+        elif query_score >= 9:
             finding = f"Strong presence - mentioned on {', '.join(mentioned_on)}"
         elif query_score >= 5:
             finding = f"Mentioned on {', '.join(mentioned_on)}; missing from {', '.join(not_mentioned_on)}"
@@ -72,10 +87,15 @@ def run_full_audit(client_name, client_website, queries, package_type="basic",
         else:
             finding = "Not mentioned on any platform"
 
+        if errored_on and scored_platforms:
+            finding += f" (errored on {', '.join(errored_on)})"
+
         return {
             "query": query_text,
             "type": query_type,
             "score": query_score,
+            "max": query_max,
+            "errored_on": errored_on,
             "finding": finding,
             "details": platform_results,
         }
@@ -89,29 +109,44 @@ def run_full_audit(client_name, client_website, queries, package_type="basic",
             if result:
                 results.append(result)
                 for p in PLATFORMS:
-                    totals[p] += result['details'].get(p, {}).get('score', 0)
-                print(f"[AUDIT] Completed: {result['query'][:40]}... Score: {result['score']}/12")
+                    pdata = result['details'].get(p, {})
+                    if pdata.get('errored'):
+                        errored_counts[p] += 1
+                    else:
+                        totals[p] += pdata.get('score', 0)
+                print(f"[AUDIT] Completed: {result['query'][:40]}... Score: {result['score']}/{result.get('max', 12)}")
 
     # Sort results to match original query order
     query_order = {q.get('query', ''): i for i, q in enumerate(queries)}
     results.sort(key=lambda r: query_order.get(r['query'], 999))
 
-    max_per_platform = len(results) * 3
+    # Per-platform max excludes errored queries — a quota-exhausted platform
+    # shouldn't drag the visibility percentage down for queries it never got to answer.
+    per_platform_max = {p: (len(results) - errored_counts[p]) * 3 for p in PLATFORMS}
     total_score = sum(r['score'] for r in results)
-    max_total = len(results) * 12
+    max_total = sum(r.get('max', 12) for r in results)
     percentage = (total_score / max_total * 100) if max_total > 0 else 0
 
     visibility_level = _visibility_level(percentage)
-    key_findings = _generate_key_findings(results, totals, max_per_platform)
+    key_findings = _generate_key_findings(results, totals, per_platform_max)
 
     # Categorize queries for recommendation engine
     brand_queries = [r for r in results if r['type'] == 'Brand']
     local_queries = [r for r in results if r['type'] == 'Local']
     info_queries = [r for r in results if r['type'] == 'Info']
 
-    platforms_tested = [(PLATFORM_NAMES[p], totals[p], max_per_platform) for p in PLATFORMS]
-    best_platform = max(platforms_tested, key=lambda x: x[1])
-    worst_platform = min(platforms_tested, key=lambda x: x[1])
+    # Best/worst platform: rank by percentage so a platform with fewer scored
+    # queries (lots of errors) doesn't unfairly look like the "worst" purely on
+    # absolute points.
+    def _platform_pct(p):
+        m = per_platform_max[p]
+        return (totals[p] / m) if m > 0 else 0
+    rankable = [p for p in PLATFORMS if per_platform_max[p] > 0]
+    platforms_tested = [(PLATFORM_NAMES[p], totals[p], per_platform_max[p]) for p in PLATFORMS]
+    best_platform_key = max(rankable, key=_platform_pct) if rankable else None
+    worst_platform_key = min(rankable, key=_platform_pct) if rankable else None
+    best_platform = (PLATFORM_NAMES[best_platform_key], totals[best_platform_key], per_platform_max[best_platform_key]) if best_platform_key else (None, 0, 0)
+    worst_platform = (PLATFORM_NAMES[worst_platform_key], totals[worst_platform_key], per_platform_max[worst_platform_key]) if worst_platform_key else (None, 0, 0)
 
     recommendations = generate_recommendations(
         client_name, results, brand_queries, local_queries, info_queries,
@@ -134,8 +169,9 @@ def run_full_audit(client_name, client_website, queries, package_type="basic",
         "platforms": {
             p: {
                 "score": totals[p],
-                "max": max_per_platform,
-                "note": _platform_note(p),
+                "max": per_platform_max[p],
+                "errored_count": errored_counts[p],
+                "note": _platform_note(p, errored_counts[p], len(results)),
             }
             for p in PLATFORMS
         },
@@ -154,14 +190,17 @@ def _visibility_level(percentage):
     return "very low"
 
 
-def _platform_note(platform):
+def _platform_note(platform, errored_count=0, total_queries=0):
     notes = {
         "chatgpt": "OpenAI GPT-4o-mini" if openai_client else "Not configured",
         "claude": "Anthropic Claude Haiku" if anthropic_client else "Not configured",
         "gemini": "Google Gemini Flash" if gemini_client else "Not configured",
         "perplexity": "Perplexity Sonar" if perplexity_client else "Not configured",
     }
-    return notes.get(platform, "Unknown")
+    note = notes.get(platform, "Unknown")
+    if errored_count and total_queries:
+        note += f" — {errored_count}/{total_queries} queries errored (excluded from score)"
+    return note
 
 
 # ---------------------------------------------------------------------------
@@ -172,15 +211,21 @@ def _get_mentioning_platforms(query_result):
     platforms = []
     details = query_result.get('details', {})
     for p, data in details.items():
+        if data.get('errored'):
+            continue
         if data.get('score', 0) >= 2:
             platforms.append(PLATFORM_NAMES.get(p, p))
     return platforms
 
 
 def _get_missing_platforms(query_result):
+    # Errored platforms are excluded — a quota/rate-limit failure isn't a
+    # "missing from this platform" finding, it's a query that didn't run.
     platforms = []
     details = query_result.get('details', {})
     for p, data in details.items():
+        if data.get('errored'):
+            continue
         if data.get('score', 0) == 0:
             platforms.append(PLATFORM_NAMES.get(p, p))
     return platforms
@@ -289,16 +334,27 @@ def _generate_key_findings(results, totals, max_per_platform):
             missing_str = ", ".join(sorted(missing_platforms)) if missing_platforms else "all platforms"
             key_findings.append(f"Content Gap: Not being cited for {weak_str}; absent on {missing_str}")
 
-    # Platform comparison
-    platforms_tested = [(name, totals.get(key, 0), max_per_platform)
+    # Platform comparison. max_per_platform may be either a single int (legacy
+    # callers/tests) or a per-platform dict {key: max} (the new errored-aware form).
+    def _max_for(key):
+        if isinstance(max_per_platform, dict):
+            return max_per_platform.get(key, 0)
+        return max_per_platform
+    platforms_tested = [(name, totals.get(key, 0), _max_for(key))
                         for key, name in PLATFORM_NAMES.items()]
     if platforms_tested:
-        best = max(platforms_tested, key=lambda x: x[1])
-        worst = min(platforms_tested, key=lambda x: x[1])
-        if best[1] > worst[1]:
-            best_pct = round((best[1] / best[2]) * 100) if best[2] > 0 else 0
-            worst_pct = round((worst[1] / worst[2]) * 100) if worst[2] > 0 else 0
-            key_findings.append(f"Platform Variance: Best visibility on {best[0]} ({best_pct}%), weakest on {worst[0]} ({worst_pct}%)")
+        # Rank by percentage, not raw points — a platform with most queries
+        # errored shouldn't read as "weakest" purely on absolute score.
+        def _pct(t):
+            return (t[1] / t[2]) if t[2] > 0 else 0
+        scored = [t for t in platforms_tested if t[2] > 0]
+        if scored:
+            best = max(scored, key=_pct)
+            worst = min(scored, key=_pct)
+            if best[1] > worst[1]:
+                best_pct = round(_pct(best) * 100)
+                worst_pct = round(_pct(worst) * 100)
+                key_findings.append(f"Platform Variance: Best visibility on {best[0]} ({best_pct}%), weakest on {worst[0]} ({worst_pct}%)")
 
     return key_findings
 

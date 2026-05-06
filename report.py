@@ -6,30 +6,48 @@ from config import get_logo_base64
 import workbook as _wb
 
 
-def get_score_class(score):
-    """Return CSS class based on score (max 12 per query with 4 platforms)."""
-    if score >= 9:
+def get_score_class(score, max_score=12):
+    """Return CSS class based on score percentage. Default max=12 (4 platforms × 3).
+
+    Thresholds preserve the legacy 12-point breakpoints (9/5/2) but scale when
+    a query's max is reduced because some platforms errored out.
+    """
+    pct = (score / max_score) if max_score > 0 else 0
+    if pct >= 9 / 12:
         return "score-3"
-    elif score >= 5:
+    elif pct >= 5 / 12:
         return "score-2"
-    elif score >= 2:
+    elif pct >= 2 / 12:
         return "score-1"
     else:
         return "score-0"
 
 
-def get_score_icon(score):
-    """Return icon based on score (max 12 per query with 4 platforms)."""
-    if score >= 9:
+def get_score_icon(score, max_score=12):
+    """Return icon based on score percentage."""
+    pct = (score / max_score) if max_score > 0 else 0
+    if pct >= 9 / 12:
         return "&#10003;"
-    elif score >= 4:
+    elif pct >= 4 / 12:
         return "&#9888;"
     else:
         return "&#10007;"
 
 
-def _platform_score_cell(score):
-    """Return styled HTML for a single platform score (0-3) in the query table."""
+def _platform_score_cell(pdata):
+    """Return styled HTML for a single platform score (0-3) in the query table.
+
+    Errored platforms (rate limit, 5xx, etc) render as a dash so they're not
+    confused with a real 0 = "not mentioned".
+    """
+    # Backward-compat: callers may still pass an int score
+    if isinstance(pdata, dict):
+        if pdata.get('errored'):
+            err = pdata.get('error') or pdata.get('finding') or 'Errored'
+            return f'<td style="text-align:center; color:#999;" title="{_html.escape(str(err))[:200]}">&mdash;</td>'
+        score = pdata.get('score', 0)
+    else:
+        score = pdata
     if score >= 3:
         return f'<td style="text-align:center; color:#1E8449; font-weight:600;">{score}</td>'
     elif score >= 2:
@@ -268,7 +286,9 @@ def generate_report_html(data):
     # Calculate totals
     queries = data.get('queries', [])
     total_score = sum(q.get('score', 0) for q in queries)
-    max_score = len(queries) * 12
+    # Sum per-query max (excludes errored platforms). Old audits without the
+    # field fall back to 12 per query.
+    max_score = sum(q.get('max', 12) for q in queries)
     percentage = (total_score / max_score) * 100 if max_score > 0 else 0
 
     # Build comparison data lookups for use across the report
@@ -286,8 +306,9 @@ def generate_report_html(data):
     query_rows = ""
     for i, q in enumerate(queries, 1):
         score = q.get('score', 0)
-        score_class = get_score_class(score)
-        icon = get_score_icon(score)
+        q_max = q.get('max', 12)
+        score_class = get_score_class(score, q_max)
+        icon = get_score_icon(score, q_max)
         details = q.get('details', {})
 
         # Build change cell for re-audits
@@ -310,17 +331,17 @@ def generate_report_html(data):
         context_badges = _build_context_badges(details)
 
         if has_details:
-            chatgpt_cell = _platform_score_cell(details.get('chatgpt', {}).get('score', 0))
-            claude_cell = _platform_score_cell(details.get('claude', {}).get('score', 0))
-            gemini_cell = _platform_score_cell(details.get('gemini', {}).get('score', 0))
-            perplexity_cell = _platform_score_cell(details.get('perplexity', {}).get('score', 0))
+            chatgpt_cell = _platform_score_cell(details.get('chatgpt', {}))
+            claude_cell = _platform_score_cell(details.get('claude', {}))
+            gemini_cell = _platform_score_cell(details.get('gemini', {}))
+            perplexity_cell = _platform_score_cell(details.get('perplexity', {}))
             query_rows += f"""
             <tr>
                 <td>{i}</td>
                 <td>{q.get('query', '')}</td>
                 <td>{q.get('type', '')}</td>
                 {chatgpt_cell}{claude_cell}{gemini_cell}{perplexity_cell}
-                <td class="{score_class}">{score}/12</td>
+                <td class="{score_class}">{score}/{q_max}</td>
                 {change_cell}
                 <td>{icon} {q.get('finding', '')}{context_badges}</td>
             </tr>"""
@@ -330,7 +351,7 @@ def generate_report_html(data):
                 <td>{i}</td>
                 <td>{q.get('query', '')}</td>
                 <td>{q.get('type', '')}</td>
-                <td class="{score_class}">{score}/12</td>
+                <td class="{score_class}">{score}/{q_max}</td>
                 {change_cell}
                 <td>{icon} {q.get('finding', '')}{context_badges}</td>
             </tr>"""
@@ -1223,6 +1244,7 @@ def generate_report_html(data):
         <div class="score-label">{_visibility_label(percentage)} AI Visibility</div>
         <p class="score-note">
             {total_score} out of {max_score} points across {len(queries)} queries on 4 AI platforms
+            {"<br><span style='font-size: 9pt; color: #888;'>Note: max excludes queries that errored on a platform (e.g. rate limits)</span>" if max_score < len(queries) * 12 else ""}
         </p>
         {"<p class='score-note' style='margin-top: 10px; font-size: 13pt; font-weight: 600;'>" + ("&#9650; +" if comparison.get("percentage_change", 0) >= 0 else "&#9660; ") + f"{comparison.get('percentage_change', 0):.1f}% since last audit</p>" if is_reaudit else ""}
     </div>

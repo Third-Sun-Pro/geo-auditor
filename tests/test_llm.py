@@ -7,7 +7,15 @@ import openai
 import anthropic as anthropic_lib
 from google.api_core import exceptions as google_exceptions
 
-from llm import analyze_response, _with_retry, _detect_namesake_collision
+from llm import analyze_response, _with_retry, _detect_namesake_collision, _error_result
+
+
+def test_error_result_flagged_as_errored():
+    """_error_result must set errored=True so scoring can distinguish from 'not mentioned'."""
+    r = _error_result("429 quota exhausted")
+    assert r["errored"] is True
+    assert r["score"] == 0
+    assert "429" in r["finding"]
 
 
 def _make_openai_rate_limit_error():

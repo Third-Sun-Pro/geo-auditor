@@ -5,7 +5,14 @@ import re
 import json
 import sqlite3
 
-DATABASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'audits.db')
+# DB lives next to the source by default. On Fly.io, set DATABASE_PATH to a
+# location on the mounted persistent volume (e.g. /data/audits.db) — otherwise
+# the file lives in the ephemeral container filesystem and gets wiped on every
+# deploy/restart.
+DATABASE = os.environ.get(
+    'DATABASE_PATH',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'audits.db'),
+)
 
 
 def get_db():

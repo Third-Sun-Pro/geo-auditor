@@ -1,7 +1,30 @@
 """Tests for database.py — SQLite CRUD operations."""
 
+import importlib
+import os
+
 import pytest
 import database
+
+
+def test_database_path_respects_env_var(monkeypatch):
+    """DATABASE_PATH env var should override the default path (Fly.io persistence fix)."""
+    monkeypatch.setenv("DATABASE_PATH", "/tmp/some-fly-volume/audits.db")
+    reloaded = importlib.reload(database)
+    try:
+        assert reloaded.DATABASE == "/tmp/some-fly-volume/audits.db"
+    finally:
+        # Reload without the env var so other tests get the default again.
+        monkeypatch.delenv("DATABASE_PATH", raising=False)
+        importlib.reload(database)
+
+
+def test_database_path_default_when_unset(monkeypatch):
+    """Without DATABASE_PATH, DATABASE should resolve to audits.db next to the source."""
+    monkeypatch.delenv("DATABASE_PATH", raising=False)
+    reloaded = importlib.reload(database)
+    assert reloaded.DATABASE.endswith("audits.db")
+    assert os.path.isabs(reloaded.DATABASE)
 
 
 def test_save_and_load_audit(app, sample_form_data, sample_intake_data):
