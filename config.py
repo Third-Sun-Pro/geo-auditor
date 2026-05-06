@@ -41,9 +41,13 @@ if os.getenv('PERPLEXITY_API_KEY'):
     )
 
 # ---------------------------------------------------------------------------
-# Logo
+# Logo — ships in static/ next to the source. LOGO_PATH overrides for
+# environments where the file lives elsewhere (e.g. a Fly mounted volume).
 # ---------------------------------------------------------------------------
-DEFAULT_LOGO_PATH = "/Users/sabrielparker/Desktop/thirdsun things/logos/ThirdSun-logo_secondary-horizontal-color.png"
+DEFAULT_LOGO_PATH = os.environ.get(
+    'LOGO_PATH',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'logo.png'),
+)
 
 
 def get_logo_base64():
