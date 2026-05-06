@@ -9,6 +9,12 @@
 # Workbook screenshots — uploaded per audit, not source-controlled
 screenshots/
 
+# Generated audit outputs — live on the Fly persistent volume, not in git
+GEO_Audits/
+
+# Legacy CLI / old webapp — kept locally for reference, not source-controlled
+GEO_Tools/
+
 # Python
 __pycache__/
 *.pyc
